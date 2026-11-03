@@ -169,3 +169,77 @@ def test_write_auth_disabled_without_env(tmp_path, monkeypatch):
                                  "status": "completed", "cost_usd": 0.1,
                                  "retry_count": 0, "attempts": []}
                   ).status_code == 201
+
+
+RECEIVER = "/integrations/litellm/spend-logs"
+LOGS = [{"request_id": "x1", "spend": 0.01, "status": "success",
+         "metadata": {"trace_id": "t9", "agentguard_outcome": "completed"}},
+        {"request_id": "x2", "spend": 0.02, "status": "success",
+         "metadata": {"trace_id": "t10"}}]
+
+
+def _client(tmp_path, monkeypatch, key="k"):
+    from fastapi.testclient import TestClient
+    import app.main as m
+
+    monkeypatch.setattr(m, "store", Store(tmp_path / "t.db"))
+    if key is None:
+        monkeypatch.delenv("AGENTGUARD_API_KEY", raising=False)
+    else:
+        monkeypatch.setenv("AGENTGUARD_API_KEY", key)
+    return TestClient(m.app)
+
+
+def test_litellm_receiver(tmp_path, monkeypatch):
+    c = _client(tmp_path, monkeypatch)
+    h = {"X-API-Key": "k"}
+    r = c.post(RECEIVER, json={"spend_logs": LOGS}, headers=h)
+    assert r.status_code == 201
+    assert r.json()["stored_runs"] == 2
+    runs = {x["run_id"]: x for x in c.get("/runs").json()["runs"]}
+    assert runs["litellm-t9"]["status"] == "completed"
+    assert runs["litellm-t10"]["status"] == "unknown"
+    # only whitelisted fields are stored - no raw log, no prompts
+    assert "prompt" not in str(runs).lower()
+    assert set(runs["litellm-t9"]["metadata"]) == {
+        "source", "cost_basis", "call_count"}
+    # repeat delivery of the same batch dedupes
+    assert c.post(RECEIVER, json={"spend_logs": LOGS},
+                  headers=h).status_code == 201
+    assert len(c.get("/runs").json()["runs"]) == 2
+
+
+def test_litellm_receiver_partial_batch_idempotent(tmp_path, monkeypatch):
+    c = _client(tmp_path, monkeypatch)
+    h = {"X-API-Key": "k"}
+    c.post(RECEIVER, json={"spend_logs": LOGS[:1]}, headers=h)
+    # second batch overlaps the first (x1 again, plus x2)
+    r = c.post(RECEIVER, json={"spend_logs": LOGS}, headers=h)
+    assert r.status_code == 201
+    runs = c.get("/runs").json()["runs"]
+    assert len(runs) == 2
+    t9 = next(x for x in runs if x["run_id"] == "litellm-t9")
+    assert len(t9["attempts"][0]["llm_calls"]) == 1  # not duplicated
+
+
+def test_litellm_receiver_fails_closed_without_key(tmp_path, monkeypatch):
+    c = _client(tmp_path, monkeypatch, key=None)
+    assert c.post(RECEIVER, json={"spend_logs": []}).status_code == 503
+
+
+def test_litellm_receiver_rejects_wrong_or_missing_key(tmp_path, monkeypatch):
+    c = _client(tmp_path, monkeypatch)
+    assert c.post(RECEIVER, json={"spend_logs": []}).status_code == 401
+    assert c.post(RECEIVER, json={"spend_logs": []},
+                  headers={"X-API-Key": "wrong"}).status_code == 401
+
+
+def test_litellm_receiver_validates_payload(tmp_path, monkeypatch):
+    c = _client(tmp_path, monkeypatch)
+    h = {"X-API-Key": "k"}
+    assert c.post(RECEIVER, json={"nope": []}, headers=h).status_code == 422
+    assert c.post(RECEIVER, json={"spend_logs": "x"}, headers=h).status_code == 422
+    assert c.post(RECEIVER, json={"spend_logs": [1, 2]},
+                  headers=h).status_code == 422
+    too_many = {"spend_logs": [{}] * 10_001}
+    assert c.post(RECEIVER, json=too_many, headers=h).status_code == 413

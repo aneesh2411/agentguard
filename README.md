@@ -47,4 +47,26 @@ pip install -e sdk/
 python sdk/examples/support_ticket.py
 ```
 
+Run the API locally (loopback only):
+
+```bash
+pip install -r api/requirements.txt
+uvicorn app.main:app --host 127.0.0.1 --app-dir api
+```
+
+## Local usage and security
+
+This is a local prototype, not production-secure. Read endpoints
+(GET /, /summary, /runs, /budgets) are unauthenticated, so anyone who can
+reach the server can see workflow and cost data. Bind to loopback and do
+not expose it.
+
+Write endpoints (POST /runs, /budgets) require an `X-API-Key` header when
+`AGENTGUARD_API_KEY` is set; with it unset they run open for local
+development. The LiteLLM receiver
+(POST /integrations/litellm/spend-logs) always requires the key and fails
+closed with 503 when `AGENTGUARD_API_KEY` is unset. The receiver stores
+only a fixed whitelist of fields (model, token counts, spend, task and
+outcome tags); prompts and arbitrary request metadata are never stored.
+
 See `docs/concept.md` for the product framing.
