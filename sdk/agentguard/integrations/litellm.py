@@ -13,6 +13,10 @@ Grouping (configurable):
 Attempt structure is not recoverable from spend logs, so each imported run
 holds a single attempt with calls in time order. Run status is a heuristic:
 completed when the final call succeeded, failed otherwise.
+
+Cost basis: run metadata carries cost_basis="provider-reported" - these
+dollars come from LiteLLM's computed spend, not AgentGuard's shipped
+pricing-table estimate. Duplicate request_ids are deduplicated on import.
 """
 from __future__ import annotations
 
@@ -35,8 +39,14 @@ def runs_from_spend_logs(
 ) -> list[dict]:
     """Group LiteLLM spend-log dicts into AgentGuard run payloads."""
     groups: dict[str, list[dict]] = {}
+    seen_request_ids: set[str] = set()
     for log in logs:
-        key = str(_meta(log).get(run_id_field) or log.get("request_id"))
+        rid = log.get("request_id")
+        if rid is not None and rid in seen_request_ids:
+            continue  # idempotent re-import
+        if rid is not None:
+            seen_request_ids.add(rid)
+        key = str(_meta(log).get(run_id_field) or rid)
         groups.setdefault(key, []).append(log)
 
     runs = []
@@ -69,6 +79,10 @@ def runs_from_spend_logs(
                 "llm_calls": llm_calls,
                 "tool_calls": [],
             }],
-            "metadata": {"source": "litellm", "call_count": len(calls)},
+            "metadata": {
+                "source": "litellm",
+                "cost_basis": "provider-reported",
+                "call_count": len(calls),
+            },
         })
     return runs

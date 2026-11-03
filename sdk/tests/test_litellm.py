@@ -34,3 +34,10 @@ def test_failed_run_and_fallback_grouping():
     orphan = next(r for r in runs if r["run_id"] == "litellm-b1")
     assert orphan["task_type"] == "litellm"  # no taskName tag
     assert orphan["status"] == "failed"
+
+
+def test_dedupes_repeat_import_and_labels_cost_basis():
+    runs = runs_from_spend_logs(LOGS + LOGS)  # same logs imported twice
+    t1 = next(r for r in runs if r["run_id"] == "litellm-t1")
+    assert len(t1["attempts"][0]["llm_calls"]) == 3  # not 6
+    assert t1["metadata"]["cost_basis"] == "provider-reported"
