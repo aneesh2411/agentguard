@@ -1,7 +1,9 @@
 """AgentGuard ingestion + read-only aggregate API."""
 from __future__ import annotations
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
+
+from .auth import require_write_key
 
 from .store import Store
 
@@ -9,7 +11,7 @@ app = FastAPI(title="AgentGuard", version="0.1.0")
 store = Store()
 
 
-@app.post("/runs", status_code=201)
+@app.post("/runs", status_code=201, dependencies=[Depends(require_write_key)])
 def ingest_run(run: dict) -> dict:
     store.put_run(run)
     return {"run_id": run.get("run_id"), "stored": True}
@@ -34,7 +36,7 @@ def dashboard() -> str:
     return render_dashboard(store.summary(), store.list_runs())
 
 
-@app.post("/budgets", status_code=201)
+@app.post("/budgets", status_code=201, dependencies=[Depends(require_write_key)])
 def set_budget(budget: dict) -> dict:
     store.set_budget(budget["task_type"], float(budget["max_cost_per_task"]))
     return {"stored": True}
