@@ -360,3 +360,16 @@ def test_receiver_rejects_oversized_body(tmp_path, monkeypatch):
     big = {"spend_logs": [], "pad": "x" * (m.MAX_BODY_BYTES + 1)}
     r = c.post(RECEIVER, json=big, headers={"X-API-Key": "k"})
     assert r.status_code == 413
+
+
+def test_dashboard_window_note_labels(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    import app.main as m
+
+    monkeypatch.setattr(m, "store", Store(tmp_path / "t.db"))
+    c = TestClient(m.app)
+    c.post("/runs", json=_run("z", 1.0, ts=1_700_000_000.0))
+    html = c.get("/", params={"since": 1_600_000_000}).text
+    assert " to now." in html
+    html = c.get("/", params={"until": 1_800_000_000}).text
+    assert "Showing the beginning to " in html
