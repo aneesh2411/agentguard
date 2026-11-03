@@ -47,6 +47,7 @@ class Store:
             FROM runs GROUP BY task_type
             """
         )
+        retry_waste = self._retry_waste_by_task_type()
         rows = []
         for task_type, runs, completed, completed_cost, failed_cost in cur:
             rows.append(
@@ -58,9 +59,31 @@ class Store:
                         round(completed_cost / completed, 6) if completed else None
                     ),
                     "wasted_on_failed_runs": round(failed_cost, 6),
+                    "retry_waste_in_completed_runs": round(
+                        retry_waste.get(task_type, 0.0), 6
+                    ),
                 }
             )
         return {"task_types": rows}
+
+    def _retry_waste_by_task_type(self) -> dict:
+        """Cost of failed attempts inside runs that eventually completed."""
+        waste: dict[str, float] = {}
+        cur = self.conn.execute(
+            "SELECT task_type, payload FROM runs WHERE status = 'completed'"
+        )
+        for task_type, payload in cur:
+            run = json.loads(payload)
+            attempts = run.get("attempts", [])
+            run_waste = 0.0
+            for a in attempts:
+                if a.get("status") == "failed":
+                    run_waste += sum(c.get("cost_usd", 0.0)
+                                     for c in a.get("llm_calls", []))
+                    run_waste += sum(t.get("cost_usd", 0.0)
+                                     for t in a.get("tool_calls", []))
+            waste[task_type] = waste.get(task_type, 0.0) + run_waste
+        return waste
 
     def list_runs(self, task_type: str | None = None,
                   status: str | None = None, limit: int = 100) -> list[dict]:
