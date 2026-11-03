@@ -51,3 +51,38 @@ def test_dashboard_empty_state():
     from app.dashboard import render_dashboard
 
     assert "No runs yet" in render_dashboard({"task_types": []}, [])
+
+
+def test_retry_waste_attribution(tmp_path):
+    s = Store(tmp_path / "t.db")
+    s.put_run({
+        "run_id": "1", "task_type": "ticket", "status": "completed",
+        "cost_usd": 0.30, "retry_count": 1,
+        "attempts": [
+            {"status": "failed",
+             "llm_calls": [{"cost_usd": 0.20}],
+             "tool_calls": [{"cost_usd": 0.05}]},
+            {"status": "succeeded",
+             "llm_calls": [{"cost_usd": 0.05}],
+             "tool_calls": []},
+        ],
+    })
+    row = s.summary()["task_types"][0]
+    assert row["retry_waste_in_completed_runs"] == 0.25
+    assert row["cost_per_completed_task"] == 0.3
+
+
+def test_http_endpoints(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    import app.main as m
+
+    monkeypatch.setattr(m, "store", Store(tmp_path / "t.db"))
+    c = TestClient(m.app)
+    r = c.post("/runs", json={"run_id": "1", "task_type": "ticket",
+                              "status": "completed", "cost_usd": 0.1,
+                              "retry_count": 0, "attempts": []})
+    assert r.status_code == 201
+    assert c.get("/summary").json()["task_types"][0]["completed"] == 1
+    assert len(c.get("/runs").json()["runs"]) == 1
+    page = c.get("/")
+    assert page.status_code == 200 and "AgentGuard" in page.text
