@@ -138,3 +138,34 @@ def test_unresolved_runs_keep_spend_but_not_denominator(tmp_path):
     assert row["spend_on_unresolved_runs"] == 0.40
     # unresolved spend stays in the numerator; denominator is completions
     assert row["cost_per_completed_task"] == 0.5
+
+
+
+def test_write_auth(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    import app.main as m
+
+    monkeypatch.setattr(m, "store", Store(tmp_path / "t.db"))
+    monkeypatch.setenv("AGENTGUARD_API_KEY", "test-key")
+    c = TestClient(m.app)
+    run = {"run_id": "1", "task_type": "t", "status": "completed",
+           "cost_usd": 0.1, "retry_count": 0, "attempts": []}
+    assert c.post("/runs", json=run).status_code == 401
+    assert c.post("/runs", json=run,
+                  headers={"X-API-Key": "wrong"}).status_code == 401
+    assert c.post("/runs", json=run,
+                  headers={"X-API-Key": "test-key"}).status_code == 201
+    assert c.get("/summary").status_code == 200  # reads stay open
+
+
+def test_write_auth_disabled_without_env(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    import app.main as m
+
+    monkeypatch.setattr(m, "store", Store(tmp_path / "t.db"))
+    monkeypatch.delenv("AGENTGUARD_API_KEY", raising=False)
+    c = TestClient(m.app)
+    assert c.post("/runs", json={"run_id": "1", "task_type": "t",
+                                 "status": "completed", "cost_usd": 0.1,
+                                 "retry_count": 0, "attempts": []}
+                  ).status_code == 201
