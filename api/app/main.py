@@ -1,7 +1,8 @@
 """AgentGuard ingestion + read-only aggregate API."""
 from __future__ import annotations
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
+from fastapi.responses import JSONResponse
 
 from .auth import require_receiver_key, require_write_key
 
@@ -9,6 +10,35 @@ from .store import Store
 
 app = FastAPI(title="AgentGuard", version="0.1.0")
 store = Store()
+
+MAX_BODY_BYTES = 2_000_000
+
+
+@app.middleware("http")
+async def cap_request_body(request: Request, call_next):
+    # Reject oversized requests before the body is parsed. Based on the
+    # declared Content-Length; chunked bodies without one still parse.
+    declared = request.headers.get("content-length")
+    if declared is not None and int(declared) > MAX_BODY_BYTES:
+        return JSONResponse(status_code=413,
+                            content={"detail": "request body too large"})
+    return await call_next(request)
+
+
+def _parse_ts(value: str | None) -> float | None:
+    """ISO 8601 (offset-aware; naive read as UTC) or unix seconds."""
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        pass
+    from datetime import datetime, timezone
+
+    dt = datetime.fromisoformat(value)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.timestamp()
 
 
 @app.post("/runs", status_code=201, dependencies=[Depends(require_write_key)])
@@ -18,8 +48,8 @@ def ingest_run(run: dict) -> dict:
 
 
 @app.get("/summary")
-def get_summary() -> dict:
-    return store.summary()
+def get_summary(since: str | None = None, until: str | None = None) -> dict:
+    return store.summary(since=_parse_ts(since), until=_parse_ts(until))
 
 
 @app.get("/runs")
@@ -30,10 +60,12 @@ def list_runs(task_type: str | None = None, status: str | None = None,
 
 
 @app.get("/", response_class=__import__("fastapi.responses", fromlist=["HTMLResponse"]).HTMLResponse)
-def dashboard() -> str:
+def dashboard(since: str | None = None, until: str | None = None) -> str:
     from .dashboard import render_dashboard
 
-    return render_dashboard(store.summary(), store.list_runs())
+    s, u = _parse_ts(since), _parse_ts(until)
+    return render_dashboard(store.summary(since=s, until=u),
+                            store.list_runs(since=s, until=u))
 
 
 @app.post("/budgets", status_code=201, dependencies=[Depends(require_write_key)])

@@ -68,5 +68,22 @@ development. The LiteLLM receiver
 closed with 503 when `AGENTGUARD_API_KEY` is unset. The receiver stores
 only a fixed whitelist of fields (model, token counts, spend, task and
 outcome tags); prompts and arbitrary request metadata are never stored.
+Batches are capped at 10,000 logs and request bodies at 2 MB
+(Content-Length checked before parsing; chunked bodies without a declared
+length are not covered).
+
+## Windows and budgets
+
+GET /summary and the dashboard accept `since` / `until` (unix seconds or
+ISO 8601; naive ISO is read as UTC). A window is an event-time filter:
+runs are counted by their last event time and each run's full spend is
+attributed to the window containing it - it is not a cohort of tasks
+completed in the window. With no completions in the window, cost per
+completed task is n/a, never zero.
+
+POST /budgets stores a per-workflow budget in USD per completed task. The
+summary flags `over_budget` when the windowed cost per completed task is
+strictly greater than the budget, and the dashboard highlights those
+rows.
 
 See `docs/concept.md` for the product framing.

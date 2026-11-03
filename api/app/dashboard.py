@@ -9,6 +9,8 @@ content="width=device-width, initial-scale=1">
 <meta http-equiv="refresh" content="30">
 <title>AgentGuard</title><style>
 body {{ font-family: system-ui, sans-serif; margin: 2rem auto; max-width: 720px; }}
+tr.over td {{ background: #fdecea; }}
+.badge {{ color: #b3261e; font-weight: 600; }}
 table {{ border-collapse: collapse; width: 100%; }}
 td, th {{ border-bottom: 1px solid #ddd; padding: .4rem .6rem; text-align: left; }}
 .muted {{ color: #777; }}
@@ -28,29 +30,68 @@ def _money(v: float | None) -> str:
     return "n/a" if v is None else f"${v:.4f}"
 
 
+def _window_links(summary: dict) -> str:
+    import time
+
+    now = time.time()
+    day = int(now - 86400)
+    week = int(now - 7 * 86400)
+    return (
+        '<p class="muted">Window: '
+        f'<a href="/?since={day}">last 24h</a> · '
+        f'<a href="/?since={week}">last 7 days</a> · '
+        '<a href="/">all time</a></p>'
+    )
+
+
+def _window_note(summary: dict) -> str:
+    w = summary.get("window")
+    if not w:
+        return ""
+    import datetime
+
+    def fmt(ts):
+        return (datetime.datetime.fromtimestamp(ts, datetime.timezone.utc)
+                .strftime("%Y-%m-%d %H:%M UTC")) if ts else "the beginning"
+
+    return ('<p class="muted">Showing {} to {}. Runs are counted by their '
+            "last event time; each run's full spend is attributed to the "
+            'window containing its last event, so this is not a cohort of '
+            'tasks completed in the window.</p>'
+            .format(fmt(w.get("since")), fmt(w.get("until"))))
+
+
 def render_dashboard(summary: dict, runs: list[dict]) -> str:
     rows = "".join(
-        "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td>"
-        "<td>{}</td><td>{}</td></tr>".format(
+        '<tr{}><td>{}</td><td>{}</td><td>{}</td><td>{}{}</td><td>{}</td>'
+        "<td>{}</td><td>{}</td><td>{}</td></tr>".format(
+            ' class="over"' if r.get("over_budget") else "",
             html.escape(r["task_type"]),
             r["completed"],
             _money(r.get("total_spend")),
             _money(r["cost_per_completed_task"]),
+            (' <span class="badge">OVER BUDGET</span>'
+             if r.get("over_budget") else ""),
             _money(r.get("spend_on_failed_runs")),
             _money(r.get("retry_waste_in_completed_runs")),
             _money(r.get("spend_on_unresolved_runs")),
+            _money(r.get("budget_per_task")),
         )
         for r in summary.get("task_types", [])
     )
     summary_html = (
-        "<table><tr><th>Workflow</th><th>Completed</th>"
+        _window_links(summary)
+        + _window_note(summary)
+        + "<table><tr><th>Workflow</th><th>Completed</th>"
         "<th>Total spend</th>"
         "<th>Cost / completed task</th>"
         "<th>of which failed runs</th>"
-        "<th>of which retries</th><th>unresolved</th></tr>"
+        "<th>of which retries</th><th>unresolved</th>"
+        "<th>budget / task</th></tr>"
         f"{rows}</table>"
         if rows
-        else '<p class="muted">No runs yet. Post one with the SDK.</p>'
+        else _window_links(summary)
+        + '<p class="muted">No runs yet. Post one with the SDK.</p>'
     )
     run_rows = "".join(
         "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>".format(

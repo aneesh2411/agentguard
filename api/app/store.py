@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS runs (
     status TEXT NOT NULL,
     cost_usd REAL NOT NULL,
     retry_count INTEGER NOT NULL,
+    event_ts REAL NOT NULL,
     payload TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS budgets (
@@ -21,26 +22,69 @@ CREATE TABLE IF NOT EXISTS budgets (
 """
 
 
+def _event_ts(run: dict) -> float | None:
+    """Latest event time in a run payload (unix seconds), if any call has one."""
+    latest = None
+    for attempt in run.get("attempts", []):
+        for call in (attempt.get("llm_calls", [])
+                     + attempt.get("tool_calls", [])):
+            ts = call.get("ts")
+            if isinstance(ts, (int, float)):
+                latest = ts if latest is None else max(latest, ts)
+    return latest
+
+
 class Store:
     def __init__(self, path: str | Path = "agentguard.db"):
         self.conn = sqlite3.connect(str(path), check_same_thread=False)
         self.conn.executescript(SCHEMA)
+        self._migrate()
+
+    def _migrate(self) -> None:
+        cols = {r[1] for r in self.conn.execute("PRAGMA table_info(runs)")}
+        if "event_ts" not in cols:
+            import time
+
+            now = time.time()
+            self.conn.execute(
+                "ALTER TABLE runs ADD COLUMN event_ts REAL NOT NULL DEFAULT 0")
+            # Backfill from payload call timestamps; runs without any get the
+            # migration time - their true event time was never recorded.
+            for run_id, payload in list(self.conn.execute(
+                    "SELECT run_id, payload FROM runs")):
+                ts = _event_ts(json.loads(payload)) or now
+                self.conn.execute(
+                    "UPDATE runs SET event_ts = ? WHERE run_id = ?",
+                    (ts, run_id))
+            self.conn.commit()
 
     def put_run(self, run: dict) -> None:
+        import time
+
         self.conn.execute(
-            "INSERT OR REPLACE INTO runs VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO runs VALUES (?, ?, ?, ?, ?, ?, ?)",
             (
                 run["run_id"],
                 run["task_type"],
                 run["status"],
                 run["cost_usd"],
                 run["retry_count"],
+                _event_ts(run) or time.time(),
                 json.dumps(run),
             ),
         )
         self.conn.commit()
 
-    def summary(self) -> dict:
+    def summary(self, since: float | None = None,
+                until: float | None = None) -> dict:
+        clauses, args = [], []
+        if since is not None:
+            clauses.append("event_ts >= ?")
+            args.append(since)
+        if until is not None:
+            clauses.append("event_ts < ?")
+            args.append(until)
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
         cur = self.conn.execute(
             """
             SELECT task_type,
@@ -52,10 +96,12 @@ class Store:
                             THEN 1 ELSE 0 END) AS unresolved,
                    SUM(CASE WHEN status NOT IN ('completed','failed')
                             THEN cost_usd ELSE 0 END) AS unresolved_cost
-            FROM runs GROUP BY task_type
-            """
+            FROM runs""" + where + """
+            GROUP BY task_type
+            """,
+            args,
         )
-        retry_waste = self._retry_waste_by_task_type()
+        retry_waste = self._retry_waste_by_task_type(where, args)
         rows = []
         for (task_type, runs, completed, completed_cost, failed_cost,
              unresolved, unresolved_cost) in cur:
@@ -94,7 +140,18 @@ class Store:
                 and row["cost_per_completed_task"] is not None
                 and row["cost_per_completed_task"] > budget
             )
-        return {"task_types": rows}
+        result = {"task_types": rows}
+        if since is not None or until is not None:
+            # Honest basis: an event-time window, not a cohort of tasks
+            # completed in the window.
+            result["window"] = {
+                "since": since,
+                "until": until,
+                "basis": ("runs counted by their last event time; each "
+                          "run's full spend is attributed to the window "
+                          "containing its last event"),
+            }
+        return result
 
     def set_budget(self, task_type: str, max_cost_per_task: float) -> None:
         self.conn.execute(
@@ -111,12 +168,14 @@ class Store:
             )
         ]
 
-    def _retry_waste_by_task_type(self) -> dict:
+    def _retry_waste_by_task_type(self, where: str = "",
+                                  args: list | None = None) -> dict:
         """Cost of failed attempts inside runs that eventually completed."""
         waste: dict[str, float] = {}
-        cur = self.conn.execute(
-            "SELECT task_type, payload FROM runs WHERE status = 'completed'"
-        )
+        q = "SELECT task_type, payload FROM runs WHERE status = 'completed'"
+        if where:
+            q += " AND " + where.removeprefix(" WHERE ")
+        cur = self.conn.execute(q, args or [])
         for task_type, payload in cur:
             run = json.loads(payload)
             attempts = run.get("attempts", [])
@@ -131,13 +190,19 @@ class Store:
         return waste
 
     def list_runs(self, task_type: str | None = None,
-                  status: str | None = None, limit: int = 100) -> list[dict]:
+                  status: str | None = None, limit: int = 100,
+                  since: float | None = None,
+                  until: float | None = None) -> list[dict]:
         q = "SELECT payload FROM runs"
         clauses, args = [], []
         if task_type:
             clauses.append("task_type = ?"); args.append(task_type)
         if status:
             clauses.append("status = ?"); args.append(status)
+        if since is not None:
+            clauses.append("event_ts >= ?"); args.append(since)
+        if until is not None:
+            clauses.append("event_ts < ?"); args.append(until)
         if clauses:
             q += " WHERE " + " AND ".join(clauses)
         q += " LIMIT ?"; args.append(limit)
