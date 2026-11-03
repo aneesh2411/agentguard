@@ -86,3 +86,26 @@ def test_http_endpoints(tmp_path, monkeypatch):
     assert len(c.get("/runs").json()["runs"]) == 1
     page = c.get("/")
     assert page.status_code == 200 and "AgentGuard" in page.text
+
+
+def test_budget_flag(tmp_path):
+    s = Store(tmp_path / "t.db")
+    s.put_run({"run_id": "1", "task_type": "ticket", "status": "completed",
+               "cost_usd": 0.30, "retry_count": 0})
+    s.set_budget("ticket", 0.10)
+    row = s.summary()["task_types"][0]
+    assert row["budget_per_task"] == 0.10
+    assert row["over_budget"] is True
+    assert s.list_budgets() == [{"task_type": "ticket",
+                                 "max_cost_per_task": 0.10}]
+
+
+def test_budget_http(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    import app.main as m
+
+    monkeypatch.setattr(m, "store", Store(tmp_path / "t.db"))
+    c = TestClient(m.app)
+    assert c.post("/budgets", json={"task_type": "ticket",
+                                    "max_cost_per_task": 0.5}).status_code == 201
+    assert c.get("/budgets").json()["budgets"][0]["max_cost_per_task"] == 0.5
