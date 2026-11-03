@@ -18,3 +18,10 @@ def ingest_run(run: dict) -> dict:
 @app.get("/summary")
 def get_summary() -> dict:
     return store.summary()
+
+
+@app.get("/runs")
+def list_runs(task_type: str | None = None, status: str | None = None,
+              limit: int = 100) -> dict:
+    return {"runs": store.list_runs(task_type=task_type, status=status,
+                                    limit=limit)}
