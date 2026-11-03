@@ -32,3 +32,14 @@ def dashboard() -> str:
     from .dashboard import render_dashboard
 
     return render_dashboard(store.summary(), store.list_runs())
+
+
+@app.post("/budgets", status_code=201)
+def set_budget(budget: dict) -> dict:
+    store.set_budget(budget["task_type"], float(budget["max_cost_per_task"]))
+    return {"stored": True}
+
+
+@app.get("/budgets")
+def get_budgets() -> dict:
+    return {"budgets": store.list_budgets()}

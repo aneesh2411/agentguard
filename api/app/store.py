@@ -14,6 +14,10 @@ CREATE TABLE IF NOT EXISTS runs (
     retry_count INTEGER NOT NULL,
     payload TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS budgets (
+    task_type TEXT PRIMARY KEY,
+    max_cost_per_task REAL NOT NULL
+);
 """
 
 
@@ -64,7 +68,34 @@ class Store:
                     ),
                 }
             )
+        budgets = {
+            t: m for t, m in
+            self.conn.execute("SELECT task_type, max_cost_per_task FROM budgets")
+        }
+        for row in rows:
+            budget = budgets.get(row["task_type"])
+            row["budget_per_task"] = budget
+            row["over_budget"] = (
+                budget is not None
+                and row["cost_per_completed_task"] is not None
+                and row["cost_per_completed_task"] > budget
+            )
         return {"task_types": rows}
+
+    def set_budget(self, task_type: str, max_cost_per_task: float) -> None:
+        self.conn.execute(
+            "INSERT OR REPLACE INTO budgets VALUES (?, ?)",
+            (task_type, max_cost_per_task),
+        )
+        self.conn.commit()
+
+    def list_budgets(self) -> list[dict]:
+        return [
+            {"task_type": t, "max_cost_per_task": m}
+            for t, m in self.conn.execute(
+                "SELECT task_type, max_cost_per_task FROM budgets"
+            )
+        ]
 
     def _retry_waste_by_task_type(self) -> dict:
         """Cost of failed attempts inside runs that eventually completed."""
