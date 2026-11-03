@@ -124,3 +124,17 @@ def test_zero_completions_undefined_cost_not_zero(tmp_path):
     assert row["cost_per_completed_task"] is None
     assert row["total_spend"] == 0.40
     assert row["spend_on_failed_runs"] == 0.40
+
+
+def test_unresolved_runs_keep_spend_but_not_denominator(tmp_path):
+    s = Store(tmp_path / "t.db")
+    s.put_run({"run_id": "1", "task_type": "ticket", "status": "completed",
+               "cost_usd": 0.10, "retry_count": 0})
+    s.put_run({"run_id": "2", "task_type": "ticket", "status": "unknown",
+               "cost_usd": 0.40, "retry_count": 0})
+    row = s.summary()["task_types"][0]
+    assert row["completed"] == 1
+    assert row["unresolved_runs"] == 1
+    assert row["spend_on_unresolved_runs"] == 0.40
+    # unresolved spend stays in the numerator; denominator is completions
+    assert row["cost_per_completed_task"] == 0.5

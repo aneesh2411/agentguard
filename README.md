@@ -22,8 +22,10 @@ This repository is an early scaffold. Status and plans live in `docs/`.
 Cost per completed task is outcome-level: **all** spend on a workflow -
 completed runs, failed runs, and every retry attempt - divided by the number
 of completed business tasks. Failed-run spend is real cost, not excluded
-overhead. When nothing has completed yet the metric is undefined (n/a), never
-zero, and total failed spend is shown alongside.
+overhead. A successful model call is not proof a task completed: imported
+runs count as completed only with an explicit outcome signal, otherwise they
+are unresolved - their spend still counts. When nothing has completed yet
+the metric is undefined (n/a), never zero.
 
 ## Roadmap (proposed)
 

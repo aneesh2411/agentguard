@@ -47,17 +47,23 @@ class Store:
                    COUNT(*) AS runs,
                    SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) AS completed,
                    SUM(CASE WHEN status='completed' THEN cost_usd ELSE 0 END) AS completed_cost,
-                   SUM(CASE WHEN status='failed' THEN cost_usd ELSE 0 END) AS failed_cost
+                   SUM(CASE WHEN status='failed' THEN cost_usd ELSE 0 END) AS failed_cost,
+                   SUM(CASE WHEN status NOT IN ('completed','failed')
+                            THEN 1 ELSE 0 END) AS unresolved,
+                   SUM(CASE WHEN status NOT IN ('completed','failed')
+                            THEN cost_usd ELSE 0 END) AS unresolved_cost
             FROM runs GROUP BY task_type
             """
         )
         retry_waste = self._retry_waste_by_task_type()
         rows = []
-        for task_type, runs, completed, completed_cost, failed_cost in cur:
-            # Outcome-level metric: ALL spend on this workflow (completed runs,
-            # failed runs, and retry attempts) divided by completed tasks.
+        for (task_type, runs, completed, completed_cost, failed_cost,
+             unresolved, unresolved_cost) in cur:
+            # Outcome-level metric: ALL spend on this workflow (completed,
+            # failed, and unresolved/outcome-unknown runs, incl. retries)
+            # divided by tasks with an explicit completed signal.
             # Undefined (None) when nothing completed - never reported as zero.
-            total_spend = completed_cost + failed_cost
+            total_spend = completed_cost + failed_cost + unresolved_cost
             rows.append(
                 {
                     "task_type": task_type,
@@ -69,6 +75,8 @@ class Store:
                     ),
                     "spend_on_completed_runs": round(completed_cost, 6),
                     "spend_on_failed_runs": round(failed_cost, 6),
+                    "unresolved_runs": unresolved,
+                    "spend_on_unresolved_runs": round(unresolved_cost, 6),
                     "retry_waste_in_completed_runs": round(
                         retry_waste.get(task_type, 0.0), 6
                     ),

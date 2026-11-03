@@ -14,7 +14,7 @@ td, th {{ border-bottom: 1px solid #ddd; padding: .4rem .6rem; text-align: left;
 .muted {{ color: #777; }}
 </style></head><body>
 <h1>AgentGuard</h1>
-<p class="muted">Cost per completed task = all spend on the workflow (failed runs and retry attempts included) divided by completed tasks. Auto-refreshes every 30s.</p>
+<p class="muted">Cost per completed task = all spend on the workflow (failed, unresolved, and retry attempts included) divided by tasks with an explicit completion signal. Auto-refreshes every 30s.</p>
 {summary}
 <h2>Recent runs</h2>
 {runs}
@@ -31,13 +31,14 @@ def _money(v: float | None) -> str:
 def render_dashboard(summary: dict, runs: list[dict]) -> str:
     rows = "".join(
         "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td>"
-        "<td>{}</td></tr>".format(
+        "<td>{}</td><td>{}</td></tr>".format(
             html.escape(r["task_type"]),
             r["completed"],
             _money(r.get("total_spend")),
             _money(r["cost_per_completed_task"]),
             _money(r.get("spend_on_failed_runs")),
             _money(r.get("retry_waste_in_completed_runs")),
+            _money(r.get("spend_on_unresolved_runs")),
         )
         for r in summary.get("task_types", [])
     )
@@ -46,7 +47,7 @@ def render_dashboard(summary: dict, runs: list[dict]) -> str:
         "<th>Total spend</th>"
         "<th>Cost / completed task</th>"
         "<th>of which failed runs</th>"
-        "<th>of which retries</th></tr>"
+        "<th>of which retries</th><th>unresolved</th></tr>"
         f"{rows}</table>"
         if rows
         else '<p class="muted">No runs yet. Post one with the SDK.</p>'

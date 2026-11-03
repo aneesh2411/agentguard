@@ -11,8 +11,13 @@ Grouping (configurable):
 - workflow: "taskName:<name>" tag (fallback: "litellm")
 
 Attempt structure is not recoverable from spend logs, so each imported run
-holds a single attempt with calls in time order. Run status is a heuristic:
-completed when the final call succeeded, failed otherwise.
+holds a single attempt with calls in time order.
+
+Completion contract: a successful model call is NOT proof the business task
+completed. Imported runs are "unknown" unless the caller sends an explicit
+outcome signal in request metadata: agentguard_outcome="completed"/"failed",
+or a "taskStatus:completed"/"taskStatus:failed" tag. Unknown runs keep their
+spend but are excluded from the completed-task denominator.
 
 Cost basis: run metadata carries cost_basis="provider-reported" - these
 dollars come from LiteLLM's computed spend, not AgentGuard's shipped
@@ -23,6 +28,20 @@ from __future__ import annotations
 
 def _meta(log: dict) -> dict:
     return (log.get("metadata") or log.get("request_metadata") or {})
+
+
+def _outcome(logs: list[dict]) -> str:
+    """Explicit business-outcome signal, else 'unknown'. Last signal wins."""
+    outcome = "unknown"
+    for log in logs:
+        meta = _meta(log)
+        explicit = meta.get("agentguard_outcome")
+        for tag in meta.get("tags") or []:
+            if isinstance(tag, str) and tag.startswith("taskStatus:"):
+                explicit = tag.split(":", 1)[1]
+        if explicit in ("completed", "failed"):
+            outcome = explicit
+    return outcome
 
 
 def _task_type(log: dict, tag_prefix: str) -> str:
@@ -62,20 +81,15 @@ def runs_from_spend_logs(
             for c in calls
         ]
         total = round(sum(c["cost_usd"] for c in llm_calls), 6)
-        succeeded = [
-            c for c in calls
-            if str(c.get("status", "success")).lower() == "success"
-        ]
+        outcome = _outcome(calls)
         runs.append({
             "run_id": f"litellm-{run_id}",
             "task_type": _task_type(calls[0], task_type_tag),
-            "status": "completed" if succeeded and calls[-1] in succeeded
-                      else "failed",
+            "status": outcome,
             "cost_usd": total,
             "retry_count": 0,
             "attempts": [{
-                "status": "succeeded" if succeeded and calls[-1] in succeeded
-                          else "failed",
+                "status": {"completed": "succeeded"}.get(outcome, outcome),
                 "llm_calls": llm_calls,
                 "tool_calls": [],
             }],
