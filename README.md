@@ -15,7 +15,15 @@ This repository is an early scaffold. Status and plans live in `docs/`.
 - `sdk/` - Python SDK: wrap an agent run, record LLM calls, tool calls, and
   retries, compute per-run cost from a pricing table, and emit structured events.
 - `api/` - FastAPI service: ingests run events and serves read-only aggregates
-  (cost per completed task, per workflow, wasted spend on failed attempts).
+  and a small dashboard.
+
+## Metric definition
+
+Cost per completed task is outcome-level: **all** spend on a workflow -
+completed runs, failed runs, and every retry attempt - divided by the number
+of completed business tasks. Failed-run spend is real cost, not excluded
+overhead. When nothing has completed yet the metric is undefined (n/a), never
+zero, and total failed spend is shown alongside.
 
 ## Roadmap (proposed)
 
