@@ -28,3 +28,26 @@ def test_list_runs_filters(tmp_path):
     assert len(s.list_runs()) == 2
     assert len(s.list_runs(task_type="ticket")) == 1
     assert len(s.list_runs(status="failed")) == 1
+
+
+def test_dashboard_renders_values():
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from app.dashboard import render_dashboard
+
+    page = render_dashboard(
+        {"task_types": [{"task_type": "ticket", "completed": 2,
+                         "cost_per_completed_task": 0.2,
+                         "wasted_on_failed_runs": 0.25}]},
+        [{"task_type": "ticket", "status": "completed", "retry_count": 1,
+          "cost_usd": 0.3, "run_id": "abc123def456"}],
+    )
+    assert "Cost per completed task" in page
+    assert "$0.2000" in page
+    assert "ticket" in page
+    assert "abc123de" in page
+
+
+def test_dashboard_empty_state():
+    from app.dashboard import render_dashboard
+
+    assert "No runs yet" in render_dashboard({"task_types": []}, [])

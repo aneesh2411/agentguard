@@ -25,3 +25,10 @@ def list_runs(task_type: str | None = None, status: str | None = None,
               limit: int = 100) -> dict:
     return {"runs": store.list_runs(task_type=task_type, status=status,
                                     limit=limit)}
+
+
+@app.get("/", response_class=__import__("fastapi.responses", fromlist=["HTMLResponse"]).HTMLResponse)
+def dashboard() -> str:
+    from .dashboard import render_dashboard
+
+    return render_dashboard(store.summary(), store.list_runs())
