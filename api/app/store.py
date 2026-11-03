@@ -54,15 +54,21 @@ class Store:
         retry_waste = self._retry_waste_by_task_type()
         rows = []
         for task_type, runs, completed, completed_cost, failed_cost in cur:
+            # Outcome-level metric: ALL spend on this workflow (completed runs,
+            # failed runs, and retry attempts) divided by completed tasks.
+            # Undefined (None) when nothing completed - never reported as zero.
+            total_spend = completed_cost + failed_cost
             rows.append(
                 {
                     "task_type": task_type,
                     "runs": runs,
                     "completed": completed,
+                    "total_spend": round(total_spend, 6),
                     "cost_per_completed_task": (
-                        round(completed_cost / completed, 6) if completed else None
+                        round(total_spend / completed, 6) if completed else None
                     ),
-                    "wasted_on_failed_runs": round(failed_cost, 6),
+                    "spend_on_completed_runs": round(completed_cost, 6),
+                    "spend_on_failed_runs": round(failed_cost, 6),
                     "retry_waste_in_completed_runs": round(
                         retry_waste.get(task_type, 0.0), 6
                     ),
