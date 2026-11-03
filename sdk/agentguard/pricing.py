@@ -13,6 +13,31 @@ from __future__ import annotations
 
 VERIFIED_ON = "2026-11-02"
 
+CURRENCY = "USD"
+
+# What a computed cost IS: an estimate of standard-tier, uncached token
+# usage at the shipped rates. What it is NOT: an exact provider invoice.
+# Cached-input discounts, batch/flex/priority tiers, thinking-token
+# surcharges, and tool or provider fees can materially change the real bill.
+ESTIMATE_BASIS = (
+    "estimate: standard-tier uncached tokens, USD per 1M, shipped table "
+    f"verified {VERIFIED_ON}; excludes cached/batch/priority tiers, "
+    "thinking surcharges, and tool fees"
+)
+
+SOURCES = {
+    "openai": "https://platform.openai.com/docs/pricing",
+    "anthropic": "https://docs.anthropic.com/en/docs/about-claude/pricing",
+    "google": "https://ai.google.dev/gemini-api/docs/pricing",
+}
+
+# Rates with a published expiry: model -> (last promo day, promo rate,
+# standard rate after). Checked at call time so costs switch over instead
+# of silently undercounting after the promo ends.
+EXPIRING_RATES = {
+    "gemini-3.8-flash": ("2026-12-31", (0.75, 3.75), (1.50, 7.50)),
+}
+
 # (input_per_1m, output_per_1m)
 DEFAULT_RATES: dict[str, tuple[float, float]] = {
     # OpenAI (standard tier)
@@ -39,9 +64,24 @@ class PricingTable:
     def set(self, model: str, input_per_1m: float, output_per_1m: float) -> None:
         self._rates[model] = (input_per_1m, output_per_1m)
 
-    def cost(self, model: str, input_tokens: int, output_tokens: int) -> float:
-        """Return USD cost. Unknown models raise so nothing is silently free."""
+    def _rate_for(self, model: str, on_date) -> tuple[float, float]:
+        if model in EXPIRING_RATES:
+            last_promo_day, promo, standard = EXPIRING_RATES[model]
+            import datetime as _dt
+
+            promo_end = _dt.date.fromisoformat(last_promo_day)
+            return promo if on_date <= promo_end else standard
+        return self._rates[model]
+
+    def cost(self, model: str, input_tokens: int, output_tokens: int,
+             on_date=None) -> float:
+        """Return estimated USD cost (see ESTIMATE_BASIS).
+
+        Unknown models raise so nothing is silently free.
+        """
         if model not in self._rates:
             raise KeyError(f"no pricing for model {model!r}; add it to the table")
-        in_rate, out_rate = self._rates[model]
+        import datetime as _dt
+
+        in_rate, out_rate = self._rate_for(model, on_date or _dt.date.today())
         return (input_tokens * in_rate + output_tokens * out_rate) / 1_000_000

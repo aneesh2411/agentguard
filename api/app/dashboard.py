@@ -18,6 +18,9 @@ td, th {{ border-bottom: 1px solid #ddd; padding: .4rem .6rem; text-align: left;
 {summary}
 <h2>Recent runs</h2>
 {runs}
+<p class="muted">Costs are estimates from the shipped pricing table
+(standard-tier uncached rates) unless the run was imported with
+provider-reported spend.</p>
 </body></html>"""
 
 
