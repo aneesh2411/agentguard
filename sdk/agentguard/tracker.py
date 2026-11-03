@@ -27,6 +27,7 @@ class RunTracker:
         metadata: dict | None = None,
     ):
         self.run = Run(task_type=task_type, metadata=metadata or {})
+        self.run.metadata.setdefault("cost_basis", "estimated-local")
         self.pricing = pricing or PricingTable()
         self.sink = Path(sink) if sink else None
         self.api_url = api_url

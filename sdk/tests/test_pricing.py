@@ -32,3 +32,14 @@ def test_retired_ids_fail_explicitly():
         except KeyError:
             continue
         raise AssertionError(f"retired id {retired} must not price silently")
+
+
+def test_promo_rate_switches_after_expiry():
+    import datetime as dt
+    from agentguard.pricing import EXPIRING_RATES
+    p = PricingTable()
+    promo = p._rate_for("gemini-3.8-flash", dt.date(2026, 12, 31))
+    after = p._rate_for("gemini-3.8-flash", dt.date(2027, 1, 1))
+    assert promo == (0.75, 3.75)
+    assert after == (1.50, 7.50)
+    assert "gemini-3.8-flash" in EXPIRING_RATES
