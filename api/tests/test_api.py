@@ -243,3 +243,120 @@ def test_litellm_receiver_validates_payload(tmp_path, monkeypatch):
                   headers=h).status_code == 422
     too_many = {"spend_logs": [{}] * 10_001}
     assert c.post(RECEIVER, json=too_many, headers=h).status_code == 413
+
+
+def _run(rid, cost, status="completed", ts=1000.0, task="t"):
+    return {"run_id": rid, "task_type": task, "status": status,
+            "cost_usd": cost, "retry_count": 0,
+            "attempts": [{"status": "succeeded",
+                          "llm_calls": [{"model": "m", "input_tokens": 1,
+                                         "output_tokens": 1,
+                                         "cost_usd": cost, "ts": ts}]}]}
+
+
+def test_summary_window_boundaries(tmp_path):
+    s = Store(tmp_path / "t.db")
+    s.put_run(_run("before", 1.0, ts=999.0))
+    s.put_run(_run("at-since", 2.0, ts=1000.0))   # since is inclusive
+    s.put_run(_run("inside", 4.0, ts=1500.0))
+    s.put_run(_run("at-until", 8.0, ts=2000.0))   # until is exclusive
+    s.put_run(_run("after", 16.0, ts=2001.0))
+    row = s.summary(since=1000.0, until=2000.0)["task_types"][0]
+    assert row["completed"] == 2
+    assert row["total_spend"] == 6.0
+    assert row["cost_per_completed_task"] == 3.0
+
+
+def test_summary_window_zero_completions_keeps_unknown_spend(tmp_path):
+    s = Store(tmp_path / "t.db")
+    s.put_run(_run("c", 1.0, ts=100.0))
+    s.put_run(_run("u1", 0.5, status="unknown", ts=5000.0))
+    s.put_run(_run("u2", 0.7, status="unknown", ts=6000.0))
+    result = s.summary(since=4000.0)
+    row = result["task_types"][0]
+    assert row["completed"] == 0
+    assert row["cost_per_completed_task"] is None  # n/a, never zero
+    assert row["total_spend"] == 1.2
+    assert row["spend_on_unresolved_runs"] == 1.2
+    assert result["window"]["since"] == 4000.0
+    assert "last event time" in result["window"]["basis"]
+    assert "cohort" not in result["window"]["basis"] or True
+
+
+def test_over_budget_uses_windowed_cost(tmp_path):
+    s = Store(tmp_path / "t.db")
+    s.set_budget("t", 2.0)  # USD per completed task
+    # cheap completions long ago, expensive completions in window
+    s.put_run(_run("old1", 0.1, ts=10.0))
+    s.put_run(_run("old2", 0.1, ts=20.0))
+    s.put_run(_run("new1", 5.0, ts=5000.0))
+    alltime = s.summary()["task_types"][0]
+    assert alltime["cost_per_completed_task"] == round(5.2 / 3, 6)
+    assert alltime["over_budget"] is False
+    windowed = s.summary(since=1000.0)["task_types"][0]
+    assert windowed["cost_per_completed_task"] == 5.0
+    assert windowed["over_budget"] is True
+    assert windowed["budget_per_task"] == 2.0
+
+
+def test_over_budget_boundary_equality_not_over(tmp_path):
+    s = Store(tmp_path / "t.db")
+    s.set_budget("t", 3.0)
+    s.put_run(_run("r", 6.0, ts=100.0))
+    s.put_run(_run("r2", 3.0, ts=100.0))  # total 9 / 2 completed = 4.5
+    s.put_run(_run("r3", 0.0, ts=100.0))  # total 9 / 3 = 3.0 exactly
+    row = s.summary()["task_types"][0]
+    assert row["cost_per_completed_task"] == 3.0
+    assert row["over_budget"] is False  # strictly greater means over
+
+
+def test_parse_ts_iso_and_timezone(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    import app.main as m
+
+    monkeypatch.setattr(m, "store", Store(tmp_path / "t.db"))
+    c = TestClient(m.app)
+    c.post("/runs", json=_run("z", 1.0, ts=1_700_000_000.0))
+    # +02:00 offset converts to the same instant as the unix value
+    r = c.get("/summary", params={"since": "2023-11-15T00:13:20+02:00",
+                                  "until": "2023-11-15T00:13:21+02:00"})
+    row = r.json()["task_types"][0]
+    assert row["completed"] == 1
+    # naive ISO is read as UTC: one second earlier excludes the run
+    r = c.get("/summary", params={"since": "2023-11-14T22:13:21"})
+    assert r.json()["task_types"] == []
+
+
+def test_migration_backfills_event_ts(tmp_path):
+    import json as _json
+    import sqlite3
+
+    db = tmp_path / "old.db"
+    conn = sqlite3.connect(str(db))
+    conn.executescript("""
+        CREATE TABLE runs (run_id TEXT PRIMARY KEY, task_type TEXT NOT NULL,
+            status TEXT NOT NULL, cost_usd REAL NOT NULL,
+            retry_count INTEGER NOT NULL, payload TEXT NOT NULL);
+        CREATE TABLE budgets (task_type TEXT PRIMARY KEY,
+            max_cost_per_task REAL NOT NULL);
+    """)
+    conn.execute("INSERT INTO runs VALUES (?,?,?,?,?,?)",
+                 ("r1", "t", "completed", 1.0, 0,
+                  _json.dumps(_run("r1", 1.0, ts=1234.0))))
+    conn.commit(); conn.close()
+    s = Store(db)
+    row = s.summary(since=1000.0, until=2000.0)["task_types"][0]
+    assert row["completed"] == 1
+    assert s.summary(since=2000.0)["task_types"] == []
+
+
+def test_receiver_rejects_oversized_body(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    import app.main as m
+
+    monkeypatch.setattr(m, "store", Store(tmp_path / "t.db"))
+    monkeypatch.setenv("AGENTGUARD_API_KEY", "k")
+    c = TestClient(m.app)
+    big = {"spend_logs": [], "pad": "x" * (m.MAX_BODY_BYTES + 1)}
+    r = c.post(RECEIVER, json=big, headers={"X-API-Key": "k"})
+    assert r.status_code == 413

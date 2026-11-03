@@ -63,3 +63,20 @@ def test_dedupes_repeat_import_and_labels_cost_basis():
     t1 = next(r for r in runs if r["run_id"] == "litellm-t1")
     assert len(t1["attempts"][0]["llm_calls"]) == 3  # not 6
     assert t1["metadata"]["cost_basis"] == "provider-reported"
+
+
+def test_start_time_becomes_event_ts():
+    runs = runs_from_spend_logs(LOGS)
+    t1 = next(r for r in runs if r["run_id"] == "litellm-t1")
+    ts = [c["ts"] for c in t1["attempts"][0]["llm_calls"]]
+    assert ts == sorted(ts)
+    from datetime import datetime, timezone
+    expect = datetime(2026, 11, 2, 10, 0, 0,
+                      tzinfo=timezone.utc).timestamp()
+    assert ts[0] == expect
+
+
+def test_missing_start_time_omits_ts():
+    runs = runs_from_spend_logs([{"request_id": "n1", "spend": 0.01,
+                                  "metadata": {"trace_id": "nt"}}])
+    assert "ts" not in runs[0]["attempts"][0]["llm_calls"][0]

@@ -26,6 +26,22 @@ pricing-table estimate. Duplicate request_ids are deduplicated on import.
 from __future__ import annotations
 
 
+def _start_ts(log: dict) -> float | None:
+    """Event time from LiteLLM's startTime (ISO), as unix seconds."""
+    raw = log.get("startTime") or log.get("start_time")
+    if not raw or not isinstance(raw, str):
+        return None
+    from datetime import datetime, timezone
+
+    try:
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.timestamp()
+
+
 def _meta(log: dict) -> dict:
     return (log.get("metadata") or log.get("request_metadata") or {})
 
@@ -77,9 +93,12 @@ def runs_from_spend_logs(
                 "input_tokens": c.get("prompt_tokens", 0),
                 "output_tokens": c.get("completion_tokens", 0),
                 "cost_usd": c.get("spend", 0.0),  # LiteLLM's computed cost
+                "ts": _start_ts(c),
             }
             for c in calls
         ]
+        llm_calls = [{k: v for k, v in c.items() if v is not None}
+                     for c in llm_calls]
         total = round(sum(c["cost_usd"] for c in llm_calls), 6)
         outcome = _outcome(calls)
         runs.append({
