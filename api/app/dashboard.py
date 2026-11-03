@@ -27,17 +27,19 @@ def _money(v: float | None) -> str:
 
 def render_dashboard(summary: dict, runs: list[dict]) -> str:
     rows = "".join(
-        "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>".format(
+        "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>".format(
             html.escape(r["task_type"]),
             r["completed"],
             _money(r["cost_per_completed_task"]),
             _money(r["wasted_on_failed_runs"]),
+            _money(r.get("retry_waste_in_completed_runs")),
         )
         for r in summary.get("task_types", [])
     )
     summary_html = (
         "<table><tr><th>Workflow</th><th>Completed</th>"
-        "<th>Cost / completed task</th><th>Wasted on failed runs</th></tr>"
+        "<th>Cost / completed task</th><th>Wasted on failed runs</th>"
+        "<th>Retry waste (completed runs)</th></tr>"
         f"{rows}</table>"
         if rows
         else '<p class="muted">No runs yet. Post one with the SDK.</p>'
