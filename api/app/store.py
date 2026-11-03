@@ -61,3 +61,16 @@ class Store:
                 }
             )
         return {"task_types": rows}
+
+    def list_runs(self, task_type: str | None = None,
+                  status: str | None = None, limit: int = 100) -> list[dict]:
+        q = "SELECT payload FROM runs"
+        clauses, args = [], []
+        if task_type:
+            clauses.append("task_type = ?"); args.append(task_type)
+        if status:
+            clauses.append("status = ?"); args.append(status)
+        if clauses:
+            q += " WHERE " + " AND ".join(clauses)
+        q += " LIMIT ?"; args.append(limit)
+        return [json.loads(r[0]) for r in self.conn.execute(q, args)]
