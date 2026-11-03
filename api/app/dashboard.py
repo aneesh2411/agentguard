@@ -54,11 +54,15 @@ def _window_note(summary: dict) -> str:
         return (datetime.datetime.fromtimestamp(ts, datetime.timezone.utc)
                 .strftime("%Y-%m-%d %H:%M UTC")) if ts else "the beginning"
 
+    def label(ts, fallback):
+        return fmt(ts) if ts else fallback
+
     return ('<p class="muted">Showing {} to {}. Runs are counted by their '
             "last event time; each run's full spend is attributed to the "
             'window containing its last event, so this is not a cohort of '
             'tasks completed in the window.</p>'
-            .format(fmt(w.get("since")), fmt(w.get("until"))))
+            .format(label(w.get("since"), "the beginning"),
+                    label(w.get("until"), "now")))
 
 
 def render_dashboard(summary: dict, runs: list[dict]) -> str:
