@@ -49,7 +49,7 @@ def test_dashboard_renders_values():
     assert "$0.3250" in page
     assert "$0.6500" in page
     assert "ticket" in page
-    assert "abc123de" in page
+    assert "abc123def456" in page
 
 
 def test_dashboard_empty_state():

@@ -57,7 +57,7 @@ def render_dashboard(summary: dict, runs: list[dict]) -> str:
             html.escape(r.get("status", "")),
             r.get("retry_count", 0),
             _money(r.get("cost_usd")),
-            html.escape(r.get("run_id", "")[:8]),
+            html.escape(r.get("run_id", "")),
         )
         for r in runs[:50]
     )
