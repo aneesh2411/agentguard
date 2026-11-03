@@ -15,8 +15,10 @@ def test_cost_per_completed_task(tmp_path):
     s.put_run({"run_id": "3", "task_type": "ticket", "status": "failed",
                "cost_usd": 0.25, "retry_count": 2})
     row = s.summary()["task_types"][0]
-    assert row["cost_per_completed_task"] == 0.2
-    assert row["wasted_on_failed_runs"] == 0.25
+    # outcome level: (0.30 + 0.10 + 0.25) / 2 completed tasks
+    assert row["cost_per_completed_task"] == 0.325
+    assert row["total_spend"] == 0.65
+    assert row["spend_on_failed_runs"] == 0.25
 
 
 def test_list_runs_filters(tmp_path):
@@ -36,13 +38,16 @@ def test_dashboard_renders_values():
 
     page = render_dashboard(
         {"task_types": [{"task_type": "ticket", "completed": 2,
-                         "cost_per_completed_task": 0.2,
-                         "wasted_on_failed_runs": 0.25}]},
+                         "total_spend": 0.65,
+                         "cost_per_completed_task": 0.325,
+                         "spend_on_failed_runs": 0.25,
+                         "retry_waste_in_completed_runs": 0.1}]},
         [{"task_type": "ticket", "status": "completed", "retry_count": 1,
           "cost_usd": 0.3, "run_id": "abc123def456"}],
     )
     assert "Cost per completed task" in page
-    assert "$0.2000" in page
+    assert "$0.3250" in page
+    assert "$0.6500" in page
     assert "ticket" in page
     assert "abc123de" in page
 
@@ -109,3 +114,13 @@ def test_budget_http(tmp_path, monkeypatch):
     assert c.post("/budgets", json={"task_type": "ticket",
                                     "max_cost_per_task": 0.5}).status_code == 201
     assert c.get("/budgets").json()["budgets"][0]["max_cost_per_task"] == 0.5
+
+
+def test_zero_completions_undefined_cost_not_zero(tmp_path):
+    s = Store(tmp_path / "t.db")
+    s.put_run({"run_id": "1", "task_type": "invoice", "status": "failed",
+               "cost_usd": 0.40, "retry_count": 2})
+    row = s.summary()["task_types"][0]
+    assert row["cost_per_completed_task"] is None
+    assert row["total_spend"] == 0.40
+    assert row["spend_on_failed_runs"] == 0.40
