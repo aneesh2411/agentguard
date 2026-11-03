@@ -20,12 +20,13 @@ DEFAULT_RATES: dict[str, tuple[float, float]] = {
     "gpt-4o-mini": (0.15, 0.60),
     "gpt-4.1": (2.00, 8.00),
     "gpt-4.1-mini": (0.40, 1.60),
-    # Anthropic (base input / output)
+    # Anthropic (base input / output; keys are exact Claude API IDs/aliases
+    # per docs.anthropic.com/en/docs/about-claude/models/overview)
     "claude-sonnet-5": (2.00, 10.00),
-    "claude-haiku-4.5": (1.00, 5.00),
-    # Retired on first-party API; still served on Bedrock/Google Cloud:
-    "claude-sonnet-4": (3.00, 15.00),
-    "claude-haiku-3.5": (0.80, 4.00),
+    "claude-haiku-4-5": (1.00, 5.00),
+    "claude-haiku-4-5-20251001": (1.00, 5.00),
+    # Retired Anthropic IDs (claude-sonnet-4-20250514, claude-3-5-haiku-
+    # 20241022, ...) are deliberately absent: unknown models raise below.
     # Google: promo through 2026-12-31, then $1.50 / $7.50
     "gemini-3.8-flash": (0.75, 3.75),
 }
