@@ -168,6 +168,28 @@ class Store:
             )
         ]
 
+    def budget_status(self, task_type: str | None) -> dict | None:
+        """Budget evaluation for one workflow, e.g. right after a write.
+
+        None when the workflow has no budget (or no runs). Mirrors the
+        summary's over_budget semantics: windowed/all-time cost per
+        completed task strictly greater than the budget.
+        """
+        if task_type is None:
+            return None
+        budget = self.conn.execute(
+            "SELECT max_cost_per_task FROM budgets WHERE task_type = ?",
+            (task_type,)).fetchone()
+        if budget is None:
+            return None
+        row = next((r for r in self.summary()["task_types"]
+                    if r["task_type"] == task_type), None)
+        if row is None:
+            return None
+        return {"budget_per_task": budget[0],
+                "cost_per_completed_task": row["cost_per_completed_task"],
+                "over_budget": row["over_budget"]}
+
     def _retry_waste_by_task_type(self, where: str = "",
                                   args: list | None = None) -> dict:
         """Cost of failed attempts inside runs that eventually completed."""
