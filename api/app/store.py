@@ -168,6 +168,11 @@ class Store:
             )
         ]
 
+    def get_run(self, run_id: str) -> dict | None:
+        row = self.conn.execute("SELECT payload FROM runs WHERE run_id = ?",
+                                (run_id,)).fetchone()
+        return json.loads(row[0]) if row else None
+
     def budget_status(self, task_type: str | None) -> dict | None:
         """Budget evaluation for one workflow, e.g. right after a write.
 

@@ -63,6 +63,20 @@ def list_runs(task_type: str | None = None, status: str | None = None,
                                     limit=limit)}
 
 
+@app.get("/runs/{run_id}",
+         response_class=__import__("fastapi.responses",
+                                   fromlist=["HTMLResponse"]).HTMLResponse)
+def run_detail(run_id: str):
+    from fastapi import HTTPException
+
+    from .dashboard import render_run_detail
+
+    run = store.get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="run not found")
+    return render_run_detail(run)
+
+
 @app.get("/", response_class=__import__("fastapi.responses", fromlist=["HTMLResponse"]).HTMLResponse)
 def dashboard(since: str | None = None, until: str | None = None) -> str:
     from .dashboard import render_dashboard
