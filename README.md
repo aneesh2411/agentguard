@@ -72,6 +72,42 @@ Batches are capped at 10,000 logs and request bodies at 2 MB
 (Content-Length checked before parsing; chunked bodies without a declared
 length are not covered).
 
+
+## Budget guard (SDK policies)
+
+A `BudgetPolicy` acts on runaway spend while a run is still in flight, not
+after the bill arrives. Attach it to a tracker; after every recorded call
+the policy is checked against the run's total estimated spend (all attempts,
+retries included):
+
+```python
+from agentguard import BudgetPolicy, RunTracker, Threshold
+
+policy = BudgetPolicy("support_ticket", thresholds=[
+    Threshold(0.10, "switch_model", fallback_model="gpt-4o-mini"),
+    Threshold(0.50, "require_approval"),
+    Threshold(1.00, "stop"),
+])
+
+with RunTracker("support_ticket", policy=policy) as t:
+    t.llm("gpt-4o", input_tokens=40_000, output_tokens=10_000)
+    model = t.recommended_model("gpt-4o")  # -> "gpt-4o-mini" past $0.10
+```
+
+- `switch_model` sets `t.decision` and makes `t.recommended_model()` return
+  the fallback; switching the actual client is the caller's action on that
+  signal.
+- `require_approval` raises `ApprovalRequired` and pauses the run; resume
+  with `t.approve()` after a human OK.
+- `stop` fails the run (spend so far is still recorded and shipped), then
+  raises `BudgetExceeded`. The exception carries the decision: threshold,
+  spend, workflow.
+
+Each threshold fires once per run, and when one call crosses several
+thresholds only the highest acts. Thresholds compare against locally
+estimated spend (see `sdk/agentguard/pricing.py` ESTIMATE_BASIS), not the
+provider invoice. Demo: `python sdk/examples/budget_guard.py`.
+
 ## Windows and budgets
 
 GET /summary and the dashboard accept `since` / `until` (unix seconds or
