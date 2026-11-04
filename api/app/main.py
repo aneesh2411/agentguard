@@ -46,9 +46,17 @@ def ingest_run(run: dict) -> dict:
     store.put_run(run)
     # Evaluate the workflow's budget at write time, not just on read, so a
     # caller learns about a breach in the ingest response. `budget` is null
-    # when the workflow has no budget configured.
-    return {"run_id": run.get("run_id"), "stored": True,
-            "budget": store.budget_status(run.get("task_type"))}
+    # when the workflow has no budget configured. State transitions into or
+    # out of breach are logged as alert events (local-only; no external
+    # delivery).
+    budget = store.budget_status(run.get("task_type"))
+    if budget is not None:
+        store.record_alert_transition(
+            run["task_type"], budget["over_budget"],
+            run_id=run.get("run_id"),
+            cost_per_completed_task=budget["cost_per_completed_task"],
+            budget_per_task=budget["budget_per_task"])
+    return {"run_id": run.get("run_id"), "stored": True, "budget": budget}
 
 
 @app.get("/summary")
@@ -83,13 +91,20 @@ def dashboard(since: str | None = None, until: str | None = None) -> str:
 
     s, u = _parse_ts(since), _parse_ts(until)
     return render_dashboard(store.summary(since=s, until=u),
-                            store.list_runs(since=s, until=u))
+                            store.list_runs(since=s, until=u),
+                            store.list_alerts(limit=10))
 
 
 @app.post("/budgets", status_code=201, dependencies=[Depends(require_write_key)])
 def set_budget(budget: dict) -> dict:
     store.set_budget(budget["task_type"], float(budget["max_cost_per_task"]))
     return {"stored": True}
+
+
+@app.get("/alerts")
+def get_alerts(limit: int = 50) -> dict:
+    """Recent budget alert events (breach / recovered), newest first."""
+    return {"alerts": store.list_alerts(limit=limit)}
 
 
 @app.get("/budgets")
