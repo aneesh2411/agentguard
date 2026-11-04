@@ -373,3 +373,48 @@ def test_dashboard_window_note_labels(tmp_path, monkeypatch):
     assert " to now." in html
     html = c.get("/", params={"until": 1_800_000_000}).text
     assert "Showing the beginning to " in html
+
+
+def test_budget_evaluated_on_ingest(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    import app.main as m
+
+    monkeypatch.setattr(m, "store", Store(tmp_path / "t.db"))
+    c = TestClient(m.app)
+
+    # No budget configured -> budget field is null, not a silent default.
+    r = c.post("/runs", json={"run_id": "1", "task_type": "ticket",
+                              "status": "completed", "cost_usd": 0.30,
+                              "retry_count": 0})
+    assert r.status_code == 201
+    assert r.json()["budget"] is None
+
+    c.post("/budgets", json={"task_type": "ticket", "max_cost_per_task": 0.50})
+    r = c.post("/runs", json={"run_id": "2", "task_type": "ticket",
+                              "status": "completed", "cost_usd": 0.30,
+                              "retry_count": 0})
+    b = r.json()["budget"]
+    # (0.30 + 0.30) / 2 completed = 0.30 per task, under the 0.50 budget.
+    assert b == {"budget_per_task": 0.50, "cost_per_completed_task": 0.30,
+                 "over_budget": False}
+
+    # A failed run's spend counts: the third run pushes cost per task over.
+    r = c.post("/runs", json={"run_id": "3", "task_type": "ticket",
+                              "status": "failed", "cost_usd": 0.80,
+                              "retry_count": 1})
+    b = r.json()["budget"]
+    assert b["cost_per_completed_task"] == 0.70
+    assert b["over_budget"] is True
+
+
+def test_budget_status_zero_completions(tmp_path):
+    s = Store(tmp_path / "t.db")
+    s.set_budget("t", 1.0)
+    s.put_run({"run_id": "1", "task_type": "t", "status": "failed",
+               "cost_usd": 5.0, "retry_count": 0})
+    b = s.budget_status("t")
+    # n/a cost per completed task is not over budget - never reported as 0.
+    assert b == {"budget_per_task": 1.0, "cost_per_completed_task": None,
+                 "over_budget": False}
+    assert s.budget_status("no_such_workflow") is None
+    assert s.budget_status(None) is None
