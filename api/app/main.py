@@ -44,7 +44,11 @@ def _parse_ts(value: str | None) -> float | None:
 @app.post("/runs", status_code=201, dependencies=[Depends(require_write_key)])
 def ingest_run(run: dict) -> dict:
     store.put_run(run)
-    return {"run_id": run.get("run_id"), "stored": True}
+    # Evaluate the workflow's budget at write time, not just on read, so a
+    # caller learns about a breach in the ingest response. `budget` is null
+    # when the workflow has no budget configured.
+    return {"run_id": run.get("run_id"), "stored": True,
+            "budget": store.budget_status(run.get("task_type"))}
 
 
 @app.get("/summary")
