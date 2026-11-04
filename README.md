@@ -122,4 +122,10 @@ summary flags `over_budget` when the windowed cost per completed task is
 strictly greater than the budget, and the dashboard highlights those
 rows.
 
+Budgets are also evaluated at write time: POST /runs answers with a
+`budget` field for the run's workflow (`budget_per_task`,
+`cost_per_completed_task`, `over_budget`), or null when no budget is
+configured - so an integrating caller learns about a breach in the ingest
+response itself.
+
 See `docs/concept.md` for the product framing.
