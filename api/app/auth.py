@@ -1,10 +1,10 @@
 """Optional API-key auth.
 
 Local prototype security model (NOT production-secure):
-- Read endpoints (GET /, /summary, /runs, /budgets) are unauthenticated.
-  Anyone who can reach the server can see workflow and cost data, so the
-  server must be bound to loopback (the default in the README quick start)
-  and never exposed.
+- Read endpoints (GET /, /summary, /runs, /alerts, /budgets) require
+  X-API-Key only when AGENTGUARD_READ_KEY is set; unset means local dev
+  mode with open reads, so the server must be bound to loopback (the
+  default in the README quick start) and never exposed.
 - Write endpoints (POST /runs, /budgets) require X-API-Key only when
   AGENTGUARD_API_KEY is set; unset means local dev mode with open writes.
 - The LiteLLM receiver FAILS CLOSED: it answers 503 when AGENTGUARD_API_KEY
@@ -25,6 +25,13 @@ def _configured_key() -> str | None:
 
 def require_write_key(x_api_key: str | None = Header(default=None)) -> None:
     expected = _configured_key()
+    if expected is None:
+        return  # local dev mode
+    _check(x_api_key, expected)
+
+
+def require_read_key(x_api_key: str | None = Header(default=None)) -> None:
+    expected = os.environ.get("AGENTGUARD_READ_KEY")
     if expected is None:
         return  # local dev mode
     _check(x_api_key, expected)
