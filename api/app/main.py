@@ -173,6 +173,39 @@ def receive_langfuse_traces(payload: dict) -> dict:
             "run_ids": [r["run_id"] for r in runs]}
 
 
+@app.post("/integrations/otel/spans", status_code=201,
+          dependencies=[Depends(require_receiver_key)])
+def receive_otel_spans(payload: dict) -> dict:
+    """Accept an exported OpenTelemetry span list and store it as runs.
+
+    Same contract as the other receivers: fails closed when
+    AGENTGUARD_API_KEY is unset, stores a fixed whitelist of fields
+    (model, token counts, shipped-table cost estimate, outcome
+    attribute), never prompts or span payloads.
+    """
+    from agentguard.integrations.otel import runs_from_spans
+    from fastapi import HTTPException
+
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=422, detail="object payload required")
+    spans = payload.get("spans")
+    if not isinstance(spans, list):
+        raise HTTPException(status_code=422,
+                            detail="spans must be a list")
+    if len(spans) > MAX_SPEND_LOGS_PER_BATCH:
+        raise HTTPException(status_code=413,
+                            detail="batch too large "
+                                   f"(max {MAX_SPEND_LOGS_PER_BATCH})")
+    if any(not isinstance(s, dict) for s in spans):
+        raise HTTPException(status_code=422,
+                            detail="each span must be an object")
+    runs = runs_from_spans(spans)
+    for run in runs:
+        store.put_run(run)
+    return {"received_spans": len(spans), "stored_runs": len(runs),
+            "run_ids": [r["run_id"] for r in runs]}
+
+
 @app.post("/integrations/litellm/spend-logs", status_code=201,
           dependencies=[Depends(require_receiver_key)])
 def receive_litellm_spend_logs(payload: dict) -> dict:
