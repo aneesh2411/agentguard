@@ -86,13 +86,16 @@ def run_detail(run_id: str):
 
 
 @app.get("/", response_class=__import__("fastapi.responses", fromlist=["HTMLResponse"]).HTMLResponse)
-def dashboard(since: str | None = None, until: str | None = None) -> str:
+def dashboard(since: str | None = None, until: str | None = None,
+              task_type: str | None = None) -> str:
     from .dashboard import render_dashboard
 
     s, u = _parse_ts(since), _parse_ts(until)
     return render_dashboard(store.summary(since=s, until=u),
-                            store.list_runs(since=s, until=u),
-                            store.list_alerts(limit=10))
+                            store.list_runs(since=s, until=u,
+                                            task_type=task_type),
+                            store.list_alerts(limit=10),
+                            task_type=task_type)
 
 
 @app.post("/budgets", status_code=201, dependencies=[Depends(require_write_key)])
