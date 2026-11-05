@@ -103,9 +103,8 @@ def dashboard(since: str | None = None, until: str | None = None,
                             runs_total=store.count_runs(
                                 task_type=task_type, since=s, until=u),
                             runs_offset=runs_offset,
-                            chart_runs=store.list_runs(
-                                since=s, until=u, task_type=task_type,
-                                limit=500))
+                            chart_per_day=store.daily_cost(
+                                task_type=task_type, since=s, until=u))
 
 
 @app.post("/budgets", status_code=201, dependencies=[Depends(require_write_key)])

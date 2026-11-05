@@ -546,7 +546,7 @@ def test_dashboard_spend_chart_and_filter(tmp_path, monkeypatch):
                                          "cost_usd": cost, "ts": ts}],
                           "tool_calls": []}]})
     page = c.get("/").text
-    assert "Spend per day" in page and "<svg" in page
+    assert "Run cost by last-event day" in page and "<svg" in page
     assert "Filter runs by workflow" in page
     assert "task_type=ticket" in page and "task_type=invoice" in page
     assert "peak day $0.7500" in page  # a1+a2 share one UTC day
@@ -582,3 +582,23 @@ def test_runs_pagination(tmp_path, monkeypatch):
     dash = c.get("/?runs_offset=3").text
     assert "of 7 runs" in dash and "newer" in dash
     assert "r4" not in dash.split("Recent runs")[-1]
+
+
+def test_daily_cost_matches_summary_attribution(tmp_path):
+    s = Store(tmp_path / "t.db")
+    for rid, tt, cost, ts in [("a1", "ticket", 0.50, 1762000000),
+                              ("a2", "ticket", 0.25, 1762000100),
+                              ("b1", "invoice", 0.10, 1762086400)]:
+        s.put_run({"run_id": rid, "task_type": tt, "status": "completed",
+                   "cost_usd": cost, "retry_count": 0,
+                   "attempts": [{"attempt_id": "x", "status": "succeeded",
+                                 "llm_calls": [{"model": "m",
+                                                "input_tokens": 1,
+                                                "output_tokens": 1,
+                                                "cost_usd": cost, "ts": ts}],
+                                 "tool_calls": []}]})
+    # a1+a2 share one UTC day
+    assert s.daily_cost() == {"2025-11-01": 0.75, "2025-11-02": 0.10}
+    assert s.daily_cost(task_type="ticket") == {"2025-11-01": 0.75}
+    since = 1762086400
+    assert s.daily_cost(since=since) == {"2025-11-02": 0.10}
