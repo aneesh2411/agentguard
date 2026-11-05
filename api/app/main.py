@@ -140,6 +140,39 @@ def get_budgets() -> dict:
 MAX_SPEND_LOGS_PER_BATCH = 10_000
 
 
+@app.post("/integrations/langfuse/traces", status_code=201,
+          dependencies=[Depends(require_receiver_key)])
+def receive_langfuse_traces(payload: dict) -> dict:
+    """Accept an exported Langfuse trace list and store it as runs.
+
+    Same contract as the LiteLLM receiver: fails closed when
+    AGENTGUARD_API_KEY is unset, stores a fixed whitelist of fields
+    (model, token counts, Langfuse-reported cost or shipped-table
+    estimate, outcome tags), never prompts or trace input/output bodies.
+    """
+    from agentguard.integrations.langfuse import runs_from_traces
+    from fastapi import HTTPException
+
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=422, detail="object payload required")
+    traces = payload.get("traces")
+    if not isinstance(traces, list):
+        raise HTTPException(status_code=422,
+                            detail="traces must be a list")
+    if len(traces) > MAX_SPEND_LOGS_PER_BATCH:
+        raise HTTPException(status_code=413,
+                            detail="batch too large "
+                                   f"(max {MAX_SPEND_LOGS_PER_BATCH})")
+    if any(not isinstance(t, dict) for t in traces):
+        raise HTTPException(status_code=422,
+                            detail="each trace must be an object")
+    runs = runs_from_traces(traces)
+    for run in runs:
+        store.put_run(run)
+    return {"received_traces": len(traces), "stored_runs": len(runs),
+            "run_ids": [r["run_id"] for r in runs]}
+
+
 @app.post("/integrations/litellm/spend-logs", status_code=201,
           dependencies=[Depends(require_receiver_key)])
 def receive_litellm_spend_logs(payload: dict) -> dict:
