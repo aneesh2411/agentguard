@@ -110,6 +110,10 @@ provider invoice. Demo: `python sdk/examples/budget_guard.py`.
 
 ## Windows and budgets
 
+The dashboard also shows an inline SVG spend-per-day chart (no JS) for
+the current view, and the runs table can be filtered by workflow with
+`?task_type=<name>` (links above the table preserve the active window).
+
 GET /summary and the dashboard accept `since` / `until` (unix seconds or
 ISO 8601; naive ISO is read as UTC). A window is an event-time filter:
 runs are counted by their last event time and each run's full spend is
