@@ -17,7 +17,7 @@ def test_unknown_model_raises():
 
 def test_shipped_rates_are_verified_format():
     from agentguard.pricing import DEFAULT_RATES, VERIFIED_ON
-    assert VERIFIED_ON == "2026-11-02"
+    assert VERIFIED_ON == "2026-11-04"
     assert "gemini-2.0-flash" not in DEFAULT_RATES  # retired upstream
     assert DEFAULT_RATES["gpt-4o"] == (2.50, 10.00)
     assert DEFAULT_RATES["claude-sonnet-5"] == (2.00, 10.00)
@@ -43,3 +43,19 @@ def test_promo_rate_switches_after_expiry():
     assert promo == (0.75, 3.75)
     assert after == (1.50, 7.50)
     assert "gemini-3.8-flash" in EXPIRING_RATES
+
+
+def test_every_rate_has_verified_date():
+    from agentguard.pricing import DEFAULT_RATES, MODEL_VERIFIED_ON
+    assert set(MODEL_VERIFIED_ON) == set(DEFAULT_RATES)
+
+
+def test_rates_match_2026_11_04_verification():
+    from agentguard.pricing import DEFAULT_RATES
+    assert DEFAULT_RATES["gpt-4o"] == (2.50, 10.00)
+    assert DEFAULT_RATES["gpt-4o-mini"] == (0.15, 0.60)
+    assert DEFAULT_RATES["gpt-4.1"] == (2.00, 8.00)
+    assert DEFAULT_RATES["gpt-4.1-mini"] == (0.40, 1.60)
+    assert DEFAULT_RATES["claude-sonnet-5"] == (2.00, 10.00)
+    assert DEFAULT_RATES["claude-haiku-4-5"] == (1.00, 5.00)
+    assert DEFAULT_RATES["gemini-3.8-flash"] == (0.75, 3.75)
