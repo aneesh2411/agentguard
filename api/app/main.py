@@ -19,15 +19,21 @@ async def cap_request_body(request: Request, call_next):
     # Reject oversized requests before the body is parsed. Based on the
     # declared Content-Length; chunked bodies without one still parse.
     declared = request.headers.get("content-length")
-    if declared is not None and int(declared) > MAX_BODY_BYTES:
-        return JSONResponse(status_code=413,
-                            content={"detail": "request body too large"})
-    if declared is None:
-        # Chunked bodies carry no Content-Length; measure the actual body.
-        body = await request.body()
-        if len(body) > MAX_BODY_BYTES:
+    if declared is not None:
+        try:
+            declared_n = int(declared)
+        except ValueError:
+            return JSONResponse(status_code=400,
+                                content={"detail": "invalid Content-Length"})
+        if declared_n > MAX_BODY_BYTES:
             return JSONResponse(status_code=413,
                                 content={"detail": "request body too large"})
+    # Always measure the actual body: a missing, malformed, or under-claimed
+    # Content-Length must not bypass the cap (chunked bodies carry none).
+    body = await request.body()
+    if len(body) > MAX_BODY_BYTES:
+        return JSONResponse(status_code=413,
+                            content={"detail": "request body too large"})
     return await call_next(request)
 
 
