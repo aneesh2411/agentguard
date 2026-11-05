@@ -5,7 +5,7 @@ Phase 1 - Measure (this scaffold)
 - [x] Cost computation from a model pricing table
 - [x] Ingestion API + SQLite store
 - [x] Read-only aggregates: cost per completed task, per workflow, retry waste
-- [x] Minimal dashboard UI
+- [x] Minimal dashboard UI (spend-per-day chart, workflow filter, run detail pages, budget alert log)
 
 Phase 2 - Integrate
 - [x] LiteLLM proxy event import
