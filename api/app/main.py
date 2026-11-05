@@ -181,7 +181,9 @@ def receive_otel_spans(payload: dict) -> dict:
     Same contract as the other receivers: fails closed when
     AGENTGUARD_API_KEY is unset, stores a fixed whitelist of fields
     (model, token counts, shipped-table cost estimate, outcome
-    attribute), never prompts or span payloads.
+    attribute), never prompts or span payloads. Accepts either a flat
+    {"spans": [...]} list or a real OTLP JSON envelope
+    ({"resourceSpans": [{"scopeSpans": [{"spans": [...]}]}]}).
     """
     from agentguard.integrations.otel import runs_from_spans
     from fastapi import HTTPException
@@ -189,9 +191,20 @@ def receive_otel_spans(payload: dict) -> dict:
     if not isinstance(payload, dict):
         raise HTTPException(status_code=422, detail="object payload required")
     spans = payload.get("spans")
+    if spans is None and isinstance(payload.get("resourceSpans"), list):
+        # Real OTLP JSON envelope: resourceSpans[].scopeSpans[].spans[]
+        spans = []
+        for rs in payload["resourceSpans"]:
+            if not isinstance(rs, dict):
+                continue
+            for ss in rs.get("scopeSpans") or []:
+                if isinstance(ss, dict):
+                    spans.extend(s for s in ss.get("spans") or []
+                                 if isinstance(s, dict))
     if not isinstance(spans, list):
-        raise HTTPException(status_code=422,
-                            detail="spans must be a list")
+        raise HTTPException(
+            status_code=422,
+            detail="spans must be a list, or a resourceSpans envelope")
     if len(spans) > MAX_SPEND_LOGS_PER_BATCH:
         raise HTTPException(status_code=413,
                             detail="batch too large "

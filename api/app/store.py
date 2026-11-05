@@ -137,6 +137,18 @@ class Store:
                     ),
                 }
             )
+        # Runs whose model pricing was unknown count as $0 in every total
+        # above; surface them so zero is never read as genuine free spend.
+        uc_where = (" WHERE json_extract(payload, '$.metadata.unknown_cost') = 1"
+                    + (" AND " + " AND ".join(clauses) if clauses else ""))
+        unknown = {
+            t: n for t, n in self.conn.execute(
+                "SELECT task_type, COUNT(*) FROM runs" + uc_where
+                + " GROUP BY task_type", args)
+        }
+        for row in rows:
+            row["unknown_cost_runs"] = unknown.get(row["task_type"], 0)
+
         budgets = {
             t: m for t, m in
             self.conn.execute("SELECT task_type, max_cost_per_task FROM budgets")
@@ -149,7 +161,8 @@ class Store:
                 and row["cost_per_completed_task"] is not None
                 and row["cost_per_completed_task"] > budget
             )
-        result = {"task_types": rows}
+        result = {"task_types": rows,
+                  "unknown_cost_runs": sum(unknown.values())}
         if since is not None or until is not None:
             # Honest basis: an event-time window, not a cohort of tasks
             # completed in the window.
