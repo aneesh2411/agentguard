@@ -18,6 +18,8 @@ td, th {{ border-bottom: 1px solid #ddd; padding: .4rem .6rem; text-align: left;
 <h1>AgentGuard</h1>
 <p class="muted">Cost per completed task = all spend on the workflow (failed, unresolved, and retry attempts included) divided by tasks with an explicit completion signal. Auto-refreshes every 30s.</p>
 {summary}
+<h2>Spend per day (UTC)</h2>
+{chart}
 <h2>Budget alerts</h2>
 {alerts}
 <h2>Recent runs</h2>
@@ -67,8 +69,97 @@ def _window_note(summary: dict) -> str:
                     label(w.get("until"), "now")))
 
 
+
+def _filter_links(summary: dict, task_type: str | None) -> str:
+    """Workflow filter links for the runs table, preserving the window."""
+    from urllib.parse import urlencode
+
+    w = summary.get("window") or {}
+    types = {t.get("task_type") for t in summary.get("task_types", [])}
+    types.discard(None)
+    if task_type:
+        types.add(task_type)
+    if not types:
+        return ""
+
+    def href(t):
+        q = {}
+        if w.get("since"):
+            q["since"] = str(int(w["since"]))
+        if w.get("until"):
+            q["until"] = str(int(w["until"]))
+        if t:
+            q["task_type"] = t
+        return "/?" + urlencode(q) if q else "/"
+
+    parts = []
+    if task_type:
+        parts.append('<a href="{}">all</a>'.format(
+            html.escape(href(None), quote=True)))
+    else:
+        parts.append("<strong>all</strong>")
+    for t in sorted(types):
+        label = html.escape(str(t))
+        if t == task_type:
+            parts.append(f"<strong>{label}</strong>")
+        else:
+            parts.append('<a href="{}">{}</a>'.format(
+                html.escape(href(t), quote=True), label))
+    return ('<p class="muted">Filter runs by workflow: ' + " · ".join(parts)
+            + "</p>")
+
+
+def _spend_chart(runs: list[dict]) -> str:
+    """Inline SVG bar chart of estimated spend per UTC day (no JS)."""
+    import datetime
+
+    per_day: dict[str, float] = {}
+    for r in runs:
+        cost = r.get("cost_usd")
+        if not isinstance(cost, (int, float)) or cost <= 0:
+            continue
+        latest = None
+        for a in r.get("attempts", []):
+            for c in (a.get("llm_calls", []) + a.get("tool_calls", [])):
+                ts = c.get("ts")
+                if isinstance(ts, (int, float)):
+                    latest = ts if latest is None else max(latest, ts)
+        if latest is None:
+            continue
+        day = (datetime.datetime.fromtimestamp(latest, datetime.timezone.utc)
+               .strftime("%Y-%m-%d"))
+        per_day[day] = per_day.get(day, 0.0) + cost
+    if not per_day:
+        return '<p class="muted">No timestamped spend in this view.</p>'
+    days = sorted(per_day)
+    peak = max(per_day.values())
+    width, height, pad = 640, 120, 24
+    bw = max(4, (width - pad * 2) // len(days) - 4)
+    bars = []
+    for i, d in enumerate(days):
+        h = max(1, round((per_day[d] / peak) * (height - pad * 2)))
+        x = pad + i * (bw + 4)
+        y = height - pad - h
+        bars.append(
+            '<rect x="{}" y="{}" width="{}" height="{}" fill="#4c7cbf">'
+            "<title>{}: {}</title></rect>".format(x, y, bw, h, d,
+                                                  _money(per_day[d])))
+    peak_label = ('<text x="{}" y="12" font-size="10" fill="#777">'
+                  "peak day {}</text>".format(pad, _money(peak)))
+    first = ('<text x="{}" y="{}" font-size="10" fill="#777">{}</text>'
+             .format(pad, height - 6, days[0]))
+    last = ('<text x="{}" y="{}" font-size="10" fill="#777" '
+            'text-anchor="end">{}</text>'.format(width - pad, height - 6,
+                                                 days[-1]))
+    return ('<svg role="img" aria-label="Estimated spend per day" '
+            'width="{}" height="{}" viewBox="0 0 {} {}">{}{}{}{}</svg>'
+            .format(width, height, width, height, peak_label,
+                    "".join(bars), first, last))
+
+
 def render_dashboard(summary: dict, runs: list[dict],
-                     alerts: list[dict] | None = None) -> str:
+                     alerts: list[dict] | None = None,
+                     task_type: str | None = None) -> str:
     rows = "".join(
         '<tr{}><td>{}</td><td>{}</td><td>{}</td><td>{}{}</td><td>{}</td>'
         "<td>{}</td><td>{}</td><td>{}</td></tr>".format(
@@ -112,7 +203,7 @@ def render_dashboard(summary: dict, runs: list[dict],
         )
         for r in runs[:50]
     )
-    runs_html = (
+    runs_html = _filter_links(summary, task_type) + (
         "<table><tr><th>Workflow</th><th>Status</th><th>Retries</th>"
         f"<th>Cost</th><th>Run</th></tr>{run_rows}</table>"
         if run_rows
@@ -135,8 +226,9 @@ def render_dashboard(summary: dict, runs: list[dict],
         else '<p class="muted">No budget breaches recorded. External alert '
         'delivery is not configured; this log is local-only.</p>'
     )
-    return PAGE.format(summary=summary_html, runs=runs_html,
-                       alerts=alerts_html)
+    chart_html = _spend_chart(runs)
+    return PAGE.format(summary=summary_html, chart=chart_html,
+                       runs=runs_html, alerts=alerts_html)
 
 
 DETAIL_PAGE = """<!doctype html>

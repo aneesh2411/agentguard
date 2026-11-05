@@ -525,3 +525,31 @@ def test_alerts_section_renders(tmp_path, monkeypatch):
     assert "Budget alerts" in page
     assert "breach" in page
     assert "$0.5000 of $0.1000" in page
+
+
+def test_dashboard_spend_chart_and_filter(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    import app.main as m
+
+    monkeypatch.setattr(m, "store", Store(tmp_path / "t.db"))
+    c = TestClient(m.app)
+    for rid, tt, cost, ts in [("a1", "ticket", 0.50, 1762000000),
+                              ("a2", "ticket", 0.25, 1762000100),
+                              ("b1", "invoice", 0.10, 1762086400)]:
+        c.post("/runs", json={
+            "run_id": rid, "task_type": tt, "status": "completed",
+            "cost_usd": cost, "retry_count": 0,
+            "attempts": [{"attempt_id": "x", "status": "succeeded",
+                          "llm_calls": [{"model": "gpt-4o-mini",
+                                         "input_tokens": 1,
+                                         "output_tokens": 1,
+                                         "cost_usd": cost, "ts": ts}],
+                          "tool_calls": []}]})
+    page = c.get("/").text
+    assert "Spend per day" in page and "<svg" in page
+    assert "Filter runs by workflow" in page
+    assert "task_type=ticket" in page and "task_type=invoice" in page
+    assert "peak day $0.7500" in page  # a1+a2 share one UTC day
+    filtered = c.get("/?task_type=ticket").text
+    assert "a1" in filtered and "a2" in filtered and "b1" not in filtered
+    assert "<strong>ticket</strong>" in filtered
