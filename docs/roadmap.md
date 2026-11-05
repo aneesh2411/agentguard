@@ -9,8 +9,8 @@ Phase 1 - Measure (this scaffold)
 
 Phase 2 - Integrate
 - [x] LiteLLM proxy event import
-- [ ] Langfuse trace import
-- [ ] OpenTelemetry spans
+- [x] Langfuse trace import
+- [x] OpenTelemetry spans
 
 Phase 3 - Warn
 - [x] Per-workflow budget thresholds and alerts
