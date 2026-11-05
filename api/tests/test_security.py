@@ -48,3 +48,26 @@ def test_run_detail_requires_read_key(client_read_key):
 def test_run_detail_open_when_read_key_unset(client, monkeypatch):
     monkeypatch.delenv("AGENTGUARD_READ_KEY", raising=False)
     assert client.get("/runs/whatever").status_code == 404
+
+
+def test_otel_endpoint_roundtrip(client, monkeypatch):
+    monkeypatch.setenv("AGENTGUARD_API_KEY", "k")
+    h = {"X-API-Key": "k"}
+    spans = [{"traceId": "t9", "spanId": "r", "name": "ticket",
+              "startTimeUnixNano": "1762087200000000000",
+              "attributes": {"agentguard_outcome": "completed"}},
+             {"traceId": "t9", "spanId": "c", "parentSpanId": "r",
+              "startTimeUnixNano": "1762087201000000000",
+              "attributes": {"gen_ai.request.model": "gpt-4o-mini",
+                             "gen_ai.usage.input_tokens": 100,
+                             "gen_ai.usage.output_tokens": 50}}]
+    resp = client.post("/integrations/otel/spans", json={"spans": spans},
+                       headers=h)
+    assert resp.status_code == 201
+    assert resp.json()["run_ids"] == ["otel-t9"]
+    bad = client.post("/integrations/otel/spans", json={"spans": "no"},
+                      headers=h)
+    assert bad.status_code == 422
+    # receiver fails closed without a key
+    assert client.post("/integrations/otel/spans",
+                       json={"spans": spans}).status_code == 401
