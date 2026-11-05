@@ -110,9 +110,15 @@ provider invoice. Demo: `python sdk/examples/budget_guard.py`.
 
 ## Windows and budgets
 
+GET /runs paginates with `limit` / `offset` (newest event first) and
+returns a `total`; the dashboard's runs table pages 50 at a time with
+newer/older links that preserve the window and workflow filter.
+
 The dashboard also shows an inline SVG spend-per-day chart (no JS) for
 the current view, and the runs table can be filtered by workflow with
 `?task_type=<name>` (links above the table preserve the active window).
+Each run's full estimated cost is attributed to the day of its last
+event, matching the window attribution - it is not a per-call breakdown.
 
 GET /summary and the dashboard accept `since` / `until` (unix seconds or
 ISO 8601; naive ISO is read as UTC). A window is an event-time filter:

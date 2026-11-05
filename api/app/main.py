@@ -66,9 +66,10 @@ def get_summary(since: str | None = None, until: str | None = None) -> dict:
 
 @app.get("/runs")
 def list_runs(task_type: str | None = None, status: str | None = None,
-              limit: int = 100) -> dict:
+              limit: int = 100, offset: int = 0) -> dict:
     return {"runs": store.list_runs(task_type=task_type, status=status,
-                                    limit=limit)}
+                                    limit=limit, offset=offset),
+            "total": store.count_runs(task_type=task_type, status=status)}
 
 
 @app.get("/runs/{run_id}",
@@ -87,15 +88,24 @@ def run_detail(run_id: str):
 
 @app.get("/", response_class=__import__("fastapi.responses", fromlist=["HTMLResponse"]).HTMLResponse)
 def dashboard(since: str | None = None, until: str | None = None,
-              task_type: str | None = None) -> str:
+              task_type: str | None = None,
+              runs_offset: int = 0) -> str:
     from .dashboard import render_dashboard
 
     s, u = _parse_ts(since), _parse_ts(until)
     return render_dashboard(store.summary(since=s, until=u),
                             store.list_runs(since=s, until=u,
-                                            task_type=task_type),
+                                            task_type=task_type,
+                                            limit=50,
+                                            offset=runs_offset),
                             store.list_alerts(limit=10),
-                            task_type=task_type)
+                            task_type=task_type,
+                            runs_total=store.count_runs(
+                                task_type=task_type, since=s, until=u),
+                            runs_offset=runs_offset,
+                            chart_runs=store.list_runs(
+                                since=s, until=u, task_type=task_type,
+                                limit=500))
 
 
 @app.post("/budgets", status_code=201, dependencies=[Depends(require_write_key)])

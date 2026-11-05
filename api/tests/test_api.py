@@ -553,3 +553,32 @@ def test_dashboard_spend_chart_and_filter(tmp_path, monkeypatch):
     filtered = c.get("/?task_type=ticket").text
     assert "a1" in filtered and "a2" in filtered and "b1" not in filtered
     assert "<strong>ticket</strong>" in filtered
+
+
+def test_runs_pagination(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    import app.main as m
+
+    monkeypatch.setattr(m, "store", Store(tmp_path / "t.db"))
+    c = TestClient(m.app)
+    for i in range(7):
+        c.post("/runs", json={"run_id": f"r{i}", "task_type": "t",
+                              "status": "completed", "cost_usd": 0.01,
+                              "retry_count": 0,
+                              "attempts": [{"attempt_id": "a", "status": "succeeded",
+                                            "llm_calls": [{"model": "m",
+                                                           "input_tokens": 1,
+                                                           "output_tokens": 1,
+                                                           "cost_usd": 0.01,
+                                                           "ts": 1762000000 + i}],
+                                            "tool_calls": []}]})
+    page1 = c.get("/runs?limit=3").json()
+    assert page1["total"] == 7
+    assert [r["run_id"] for r in page1["runs"]] == ["r6", "r5", "r4"]
+    page2 = c.get("/runs?limit=3&offset=3").json()
+    assert [r["run_id"] for r in page2["runs"]] == ["r3", "r2", "r1"]
+    page3 = c.get("/runs?limit=3&offset=6").json()
+    assert [r["run_id"] for r in page3["runs"]] == ["r0"]
+    dash = c.get("/?runs_offset=3").text
+    assert "of 7 runs" in dash and "newer" in dash
+    assert "r4" not in dash.split("Recent runs")[-1]
