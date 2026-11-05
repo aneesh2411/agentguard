@@ -71,3 +71,63 @@ def test_otel_endpoint_roundtrip(client, monkeypatch):
     # receiver fails closed without a key
     assert client.post("/integrations/otel/spans",
                        json={"spans": spans}).status_code == 401
+
+
+def test_otel_accepts_real_otlp_envelope(client, monkeypatch):
+    monkeypatch.setenv("AGENTGUARD_API_KEY", "k")
+    envelope = {"resourceSpans": [{
+        "resource": {"attributes": []},
+        "scopeSpans": [{"scope": {"name": "lib"},
+                        "spans": [
+                            {"traceId": "tx", "spanId": "s",
+                             "name": "chat",
+                             "startTimeUnixNano": "1762087200000000000",
+                             "attributes": [
+                                 {"key": "gen_ai.request.model",
+                                  "value": {"stringValue": "gpt-4o-mini"}},
+                                 {"key": "gen_ai.usage.input_tokens",
+                                  "value": {"intValue": 100}}]}]}]}]}
+    resp = client.post("/integrations/otel/spans", json=envelope,
+                       headers={"X-API-Key": "k"})
+    assert resp.status_code == 201
+    assert resp.json()["run_ids"] == ["otel-tx"]
+    assert resp.json()["received_spans"] == 1
+
+
+def test_receiver_repost_is_idempotent(client, monkeypatch):
+    monkeypatch.setenv("AGENTGUARD_API_KEY", "k")
+    h = {"X-API-Key": "k"}
+    spans = [{"traceId": "t9", "spanId": "c", "name": "ticket",
+              "attributes": {"gen_ai.request.model": "gpt-4o-mini",
+                             "gen_ai.usage.input_tokens": 1000,
+                             "gen_ai.usage.output_tokens": 200}}]
+    for _ in range(2):
+        assert client.post("/integrations/otel/spans",
+                           json={"spans": spans}, headers=h).status_code == 201
+    runs = client.get("/runs").json()["runs"]
+    assert [r["run_id"] for r in runs] == ["otel-t9"]
+    # same spend once, not doubled
+    assert abs(runs[0]["cost_usd"] - 0.00027) < 1e-9
+    s = client.get("/summary").json()
+    assert abs(s["task_types"][0]["total_spend"] - 0.00027) < 1e-9
+
+
+def test_summary_surfaces_unknown_cost_runs(client, monkeypatch):
+    monkeypatch.setenv("AGENTGUARD_API_KEY", "k")
+    h = {"X-API-Key": "k"}
+    spans = [{"traceId": "tu", "spanId": "c", "name": "mystery",
+              "attributes": {"gen_ai.request.model": "no-such-model",
+                             "gen_ai.usage.input_tokens": 5000}},
+             {"traceId": "tk", "spanId": "c", "name": "mystery",
+              "attributes": {"gen_ai.request.model": "gpt-4o-mini",
+                             "gen_ai.usage.input_tokens": 1000}}]
+    assert client.post("/integrations/otel/spans",
+                       json={"spans": spans}, headers=h).status_code == 201
+    s = client.get("/summary").json()
+    assert s["unknown_cost_runs"] == 1
+    row = s["task_types"][0]
+    assert row["unknown_cost_runs"] == 1
+    # the unknown run's spend is $0 in totals - the flag is what keeps
+    # that from reading as free
+    page = client.get("/").text
+    assert "pricing is" in page and "understate" in page
