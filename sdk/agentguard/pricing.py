@@ -1,17 +1,21 @@
 """Model pricing table and cost computation.
 
 Rates are USD per 1M tokens (standard tier, input / output), verified
-2026-11-02 against the providers' pricing pages:
+2026-11-04 against the providers' pricing pages (per-model dates in
+MODEL_VERIFIED_ON):
 - OpenAI:    platform.openai.com/docs/pricing
 - Anthropic: docs.anthropic.com/en/docs/about-claude/pricing
 - Google:    ai.google.dev/gemini-api/docs/pricing
 
 Prices change; re-verify before quoting dollar figures to customers.
-Override at runtime with PricingTable.set() or a custom table.
+Override at runtime with PricingTable.set() or a custom table. The table
+is deliberately shipped in the SDK (no remote pricing feed): cost
+estimates are reproducible from the installed version, and updates ship
+with the code that interprets them.
 """
 from __future__ import annotations
 
-VERIFIED_ON = "2026-11-02"
+VERIFIED_ON = "2026-11-04"
 
 CURRENCY = "USD"
 
@@ -38,6 +42,18 @@ EXPIRING_RATES = {
     "gemini-3.8-flash": ("2026-12-31", (0.75, 3.75), (1.50, 7.50)),
 }
 
+# Last date each model's rates were checked against the provider page.
+MODEL_VERIFIED_ON: dict[str, str] = {
+    "gpt-4o": "2026-11-04",
+    "gpt-4o-mini": "2026-11-04",
+    "gpt-4.1": "2026-11-04",
+    "gpt-4.1-mini": "2026-11-04",
+    "claude-sonnet-5": "2026-11-04",
+    "claude-haiku-4-5": "2026-11-04",
+    "claude-haiku-4-5-20251001": "2026-11-04",
+    "gemini-3.8-flash": "2026-11-04",
+}
+
 # (input_per_1m, output_per_1m)
 DEFAULT_RATES: dict[str, tuple[float, float]] = {
     # OpenAI (standard tier)
@@ -46,13 +62,15 @@ DEFAULT_RATES: dict[str, tuple[float, float]] = {
     "gpt-4.1": (2.00, 8.00),
     "gpt-4.1-mini": (0.40, 1.60),
     # Anthropic (base input / output; keys are exact Claude API IDs/aliases
-    # per docs.anthropic.com/en/docs/about-claude/models/overview)
+    # per docs.anthropic.com/en/docs/about-claude/models/overview).
+    # Sonnet 5's $2/$10 launch pricing is now its standard price (the
+    # planned 2026-09-01 increase to $3/$15 did not happen).
     "claude-sonnet-5": (2.00, 10.00),
     "claude-haiku-4-5": (1.00, 5.00),
     "claude-haiku-4-5-20251001": (1.00, 5.00),
     # Retired Anthropic IDs (claude-sonnet-4-20250514, claude-3-5-haiku-
     # 20241022, ...) are deliberately absent: unknown models raise below.
-    # Google: promo through 2026-12-31, then $1.50 / $7.50
+    # Google: promo through 2026-12-31, then $1.50 / $7.50 from 2027-01-01
     "gemini-3.8-flash": (0.75, 3.75),
 }
 
