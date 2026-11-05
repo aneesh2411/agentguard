@@ -33,7 +33,7 @@ def test_trace_maps_to_one_run():
     calls = run["attempts"][0]["llm_calls"]
     assert len(calls) == 2  # SPAN excluded
     assert calls[0]["model"] == "gpt-4o"  # sorted by startTime
-    # o1 provider-reported 0.01 + o2 estimated (1000*.15+200*.60)/1M = 0.00075
+    # o1 provider-reported 0.01 + o2 estimated (1000*.15+200*.60)/1M = 0.00027
     assert abs(run["cost_usd"] - 0.01027) < 1e-9
     assert run["metadata"]["cost_basis"] == "mixed"
 
