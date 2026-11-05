@@ -18,7 +18,7 @@ td, th {{ border-bottom: 1px solid #ddd; padding: .4rem .6rem; text-align: left;
 <h1>AgentGuard</h1>
 <p class="muted">Cost per completed task = all spend on the workflow (failed, unresolved, and retry attempts included) divided by tasks with an explicit completion signal. Auto-refreshes every 30s.</p>
 {summary}
-<h2>Spend per day (UTC)</h2>
+<h2>Run cost by last-event day (UTC)</h2>
 {chart}
 <h2>Budget alerts</h2>
 {alerts}
@@ -146,26 +146,8 @@ def _page_links(summary: dict, task_type: str | None, total: int,
     return " ".join(parts) + "</p>"
 
 
-def _spend_chart(runs: list[dict]) -> str:
-    """Inline SVG bar chart of estimated spend per UTC day (no JS)."""
-    import datetime
-
-    per_day: dict[str, float] = {}
-    for r in runs:
-        cost = r.get("cost_usd")
-        if not isinstance(cost, (int, float)) or cost <= 0:
-            continue
-        latest = None
-        for a in r.get("attempts", []):
-            for c in (a.get("llm_calls", []) + a.get("tool_calls", [])):
-                ts = c.get("ts")
-                if isinstance(ts, (int, float)):
-                    latest = ts if latest is None else max(latest, ts)
-        if latest is None:
-            continue
-        day = (datetime.datetime.fromtimestamp(latest, datetime.timezone.utc)
-               .strftime("%Y-%m-%d"))
-        per_day[day] = per_day.get(day, 0.0) + cost
+def _spend_chart(per_day: dict[str, float]) -> str:
+    """Inline SVG bar chart of run cost per UTC day (no JS)."""
     if not per_day:
         return '<p class="muted">No timestamped spend in this view.</p>'
     days = sorted(per_day)
@@ -193,9 +175,9 @@ def _spend_chart(runs: list[dict]) -> str:
            .format(width, height, width, height, peak_label,
                    "".join(bars), first, last))
     return (svg + '<p class="muted">Each run\'s full estimated cost is '
-            'attributed to the day of its last event, matching the window '
-            'attribution above - it is not a day-by-day breakdown of '
-            'individual calls.</p>')
+            'attributed to the day of its last event, matching the '
+            'summary window above - not a day-by-day breakdown of '
+            'individual calls. Covers every run in the current view.</p>')
 
 
 def render_dashboard(summary: dict, runs: list[dict],
@@ -204,7 +186,7 @@ def render_dashboard(summary: dict, runs: list[dict],
                      runs_total: int | None = None,
                      runs_offset: int = 0,
                      runs_limit: int = 50,
-                     chart_runs: list[dict] | None = None) -> str:
+                     chart_per_day: dict[str, float] | None = None) -> str:
     rows = "".join(
         '<tr{}><td>{}</td><td>{}</td><td>{}</td><td>{}{}</td><td>{}</td>'
         "<td>{}</td><td>{}</td><td>{}</td></tr>".format(
@@ -274,7 +256,7 @@ def render_dashboard(summary: dict, runs: list[dict],
         else '<p class="muted">No budget breaches recorded. External alert '
         'delivery is not configured; this log is local-only.</p>'
     )
-    chart_html = _spend_chart(runs if chart_runs is None else chart_runs)
+    chart_html = _spend_chart(chart_per_day or {})
     return PAGE.format(summary=summary_html, chart=chart_html,
                        runs=runs_html, alerts=alerts_html)
 
