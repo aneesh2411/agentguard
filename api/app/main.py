@@ -4,7 +4,7 @@ from __future__ import annotations
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from .auth import require_receiver_key, require_write_key
+from .auth import require_read_key, require_receiver_key, require_write_key
 
 from .store import Store
 
@@ -22,6 +22,12 @@ async def cap_request_body(request: Request, call_next):
     if declared is not None and int(declared) > MAX_BODY_BYTES:
         return JSONResponse(status_code=413,
                             content={"detail": "request body too large"})
+    if declared is None:
+        # Chunked bodies carry no Content-Length; measure the actual body.
+        body = await request.body()
+        if len(body) > MAX_BODY_BYTES:
+            return JSONResponse(status_code=413,
+                                content={"detail": "request body too large"})
     return await call_next(request)
 
 
@@ -59,12 +65,12 @@ def ingest_run(run: dict) -> dict:
     return {"run_id": run.get("run_id"), "stored": True, "budget": budget}
 
 
-@app.get("/summary")
+@app.get("/summary", dependencies=[Depends(require_read_key)])
 def get_summary(since: str | None = None, until: str | None = None) -> dict:
     return store.summary(since=_parse_ts(since), until=_parse_ts(until))
 
 
-@app.get("/runs")
+@app.get("/runs", dependencies=[Depends(require_read_key)])
 def list_runs(task_type: str | None = None, status: str | None = None,
               limit: int = 100, offset: int = 0) -> dict:
     return {"runs": store.list_runs(task_type=task_type, status=status,
@@ -73,6 +79,7 @@ def list_runs(task_type: str | None = None, status: str | None = None,
 
 
 @app.get("/runs/{run_id}",
+         dependencies=[Depends(require_read_key)],
          response_class=__import__("fastapi.responses",
                                    fromlist=["HTMLResponse"]).HTMLResponse)
 def run_detail(run_id: str):
@@ -86,7 +93,7 @@ def run_detail(run_id: str):
     return render_run_detail(run)
 
 
-@app.get("/", response_class=__import__("fastapi.responses", fromlist=["HTMLResponse"]).HTMLResponse)
+@app.get("/", dependencies=[Depends(require_read_key)], response_class=__import__("fastapi.responses", fromlist=["HTMLResponse"]).HTMLResponse)
 def dashboard(since: str | None = None, until: str | None = None,
               task_type: str | None = None,
               runs_offset: int = 0) -> str:
@@ -113,13 +120,13 @@ def set_budget(budget: dict) -> dict:
     return {"stored": True}
 
 
-@app.get("/alerts")
+@app.get("/alerts", dependencies=[Depends(require_read_key)])
 def get_alerts(limit: int = 50) -> dict:
     """Recent budget alert events (breach / recovered), newest first."""
     return {"alerts": store.list_alerts(limit=limit)}
 
 
-@app.get("/budgets")
+@app.get("/budgets", dependencies=[Depends(require_read_key)])
 def get_budgets() -> dict:
     return {"budgets": store.list_budgets()}
 

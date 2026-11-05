@@ -602,3 +602,32 @@ def test_daily_cost_matches_summary_attribution(tmp_path):
     assert s.daily_cost(task_type="ticket") == {"2025-11-01": 0.75}
     since = 1762086400
     assert s.daily_cost(since=since) == {"2025-11-02": 0.10}
+
+
+def test_read_key_enforcement(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    import app.main as m
+
+    monkeypatch.setattr(m, "store", Store(tmp_path / "t.db"))
+    monkeypatch.setenv("AGENTGUARD_READ_KEY", "rk")
+    c = TestClient(m.app)
+    for path in ["/", "/summary", "/runs", "/budgets", "/alerts"]:
+        assert c.get(path).status_code == 401, path
+        assert c.get(path, headers={"X-API-Key": "wrong"}).status_code == 401
+        assert c.get(path, headers={"X-API-Key": "rk"}).status_code == 200, path
+    # writes stay on the write key, which is unset here -> open
+    assert c.post("/budgets", json={"task_type": "t",
+                                    "max_cost_per_task": 1}).status_code == 201
+
+
+def test_chunked_body_cap(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    import app.main as m
+
+    monkeypatch.setattr(m, "store", Store(tmp_path / "t.db"))
+    c = TestClient(m.app)
+    big = b"x" * (m.MAX_BODY_BYTES + 1)
+    # streaming body -> no Content-Length header -> chunked
+    r = c.post("/runs", content=iter([big]),
+               headers={"Content-Type": "application/json"})
+    assert r.status_code == 413

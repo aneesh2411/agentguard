@@ -61,9 +61,10 @@ uvicorn app.main:app --host 127.0.0.1 --app-dir api
 ## Local usage and security
 
 This is a local prototype, not production-secure. Read endpoints
-(GET /, /summary, /runs, /budgets) are unauthenticated, so anyone who can
-reach the server can see workflow and cost data. Bind to loopback and do
-not expose it.
+(GET /, /summary, /runs, /budgets, /alerts) require an `X-API-Key` header
+when `AGENTGUARD_READ_KEY` is set; with it unset they run open, so anyone
+who can reach the server can see workflow and cost data. Bind to loopback
+and do not expose it.
 
 Write endpoints (POST /runs, /budgets) require an `X-API-Key` header when
 `AGENTGUARD_API_KEY` is set; with it unset they run open for local
@@ -73,6 +74,7 @@ closed with 503 when `AGENTGUARD_API_KEY` is unset. The receiver stores
 only a fixed whitelist of fields (model, token counts, spend, task and
 outcome tags); prompts and arbitrary request metadata are never stored.
 Batches are capped at 10,000 logs and request bodies at 2 MB
+(enforced on chunked bodies too, which carry no Content-Length)
 (Content-Length checked before parsing; chunked bodies without a declared
 length are not covered).
 
