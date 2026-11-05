@@ -12,6 +12,10 @@ This repository is an early scaffold. Status and plans live in `docs/`.
 
 ## What it does (today)
 
+Five-minute local walkthrough (simulated agents, no real provider calls):
+`docs/demo.md`.
+
+
 - `sdk/` - Python SDK: wrap an agent run, record LLM calls, tool calls, and
   retries, compute per-run cost from a pricing table, and emit structured events.
 - `api/` - FastAPI service: ingests run events and serves read-only aggregates
