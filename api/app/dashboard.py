@@ -204,9 +204,18 @@ def render_dashboard(summary: dict, runs: list[dict],
         )
         for r in summary.get("task_types", [])
     )
+    unknown_note = ""
+    n_unknown = summary.get("unknown_cost_runs") or 0
+    if n_unknown:
+        unknown_note = (
+            '<p class="muted">{} run{} contain model calls whose pricing is '
+            "unknown; they count as $0 in every figure on this page, so "
+            "totals and budget status may understate actual spend.</p>"
+            .format(n_unknown, "s" if n_unknown != 1 else ""))
     summary_html = (
         _window_links(summary)
         + _window_note(summary)
+        + unknown_note
         + "<table><tr><th>Workflow</th><th>Completed</th>"
         "<th>Total spend</th>"
         "<th>Cost / completed task</th>"
