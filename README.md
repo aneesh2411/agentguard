@@ -20,6 +20,8 @@ Five-minute local walkthrough (simulated agents, no real provider calls):
   retries, compute per-run cost from a pricing table, and emit structured events.
 - `api/` - FastAPI service: ingests run events and serves read-only aggregates
   and a small dashboard.
+- Integrations: LiteLLM spend-log and Langfuse trace import (both
+  receiver endpoints fail closed without `AGENTGUARD_API_KEY`).
 
 ## Metric definition
 
