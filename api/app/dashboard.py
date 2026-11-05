@@ -18,6 +18,8 @@ td, th {{ border-bottom: 1px solid #ddd; padding: .4rem .6rem; text-align: left;
 <h1>AgentGuard</h1>
 <p class="muted">Cost per completed task = all spend on the workflow (failed, unresolved, and retry attempts included) divided by tasks with an explicit completion signal. Auto-refreshes every 30s.</p>
 {summary}
+<h2>Budget alerts</h2>
+{alerts}
 <h2>Recent runs</h2>
 {runs}
 <p class="muted">Costs are estimates from the shipped pricing table
@@ -65,7 +67,8 @@ def _window_note(summary: dict) -> str:
                     label(w.get("until"), "now")))
 
 
-def render_dashboard(summary: dict, runs: list[dict]) -> str:
+def render_dashboard(summary: dict, runs: list[dict],
+                     alerts: list[dict] | None = None) -> str:
     rows = "".join(
         '<tr{}><td>{}</td><td>{}</td><td>{}</td><td>{}{}</td><td>{}</td>'
         "<td>{}</td><td>{}</td><td>{}</td></tr>".format(
@@ -115,7 +118,25 @@ def render_dashboard(summary: dict, runs: list[dict]) -> str:
         if run_rows
         else ""
     )
-    return PAGE.format(summary=summary_html, runs=runs_html)
+    alert_rows = "".join(
+        "<tr><td>{}</td><td>{}</td><td>{}</td><td>{} of {}</td></tr>".format(
+            _fmt_ts(a.get("ts")),
+            html.escape(str(a.get("task_type", ""))),
+            html.escape(str(a.get("status", ""))),
+            _money(a.get("cost_per_completed_task")),
+            _money(a.get("budget_per_task")),
+        )
+        for a in (alerts or [])
+    )
+    alerts_html = (
+        "<table><tr><th>Time</th><th>Workflow</th><th>Event</th>"
+        f"<th>Cost / task vs budget</th></tr>{alert_rows}</table>"
+        if alert_rows
+        else '<p class="muted">No budget breaches recorded. External alert '
+        'delivery is not configured; this log is local-only.</p>'
+    )
+    return PAGE.format(summary=summary_html, runs=runs_html,
+                       alerts=alerts_html)
 
 
 DETAIL_PAGE = """<!doctype html>

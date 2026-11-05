@@ -128,4 +128,12 @@ Budgets are also evaluated at write time: POST /runs answers with a
 configured - so an integrating caller learns about a breach in the ingest
 response itself.
 
+Budget breaches are logged as alert events: when a workflow's over_budget
+state flips, an event (breach / recovered, with cost vs budget and the
+triggering run) is recorded and shown on the dashboard and at
+GET /alerts. A workflow already over budget does not re-alert on every
+ingest; it alerts again only after recovering and breaching once more.
+This log is local-only - no external delivery (webhook/email) is
+configured.
+
 See `docs/concept.md` for the product framing.

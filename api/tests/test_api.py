@@ -471,3 +471,57 @@ def test_get_run_store(tmp_path):
                "cost_usd": 0.1, "retry_count": 0})
     assert s.get_run("1")["task_type"] == "t"
     assert s.get_run("missing") is None
+
+
+def test_budget_alert_transitions(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    import app.main as m
+
+    monkeypatch.setattr(m, "store", Store(tmp_path / "t.db"))
+    c = TestClient(m.app)
+    c.post("/budgets", json={"task_type": "ticket", "max_cost_per_task": 0.40})
+
+    def post_run(run_id, status, cost):
+        return c.post("/runs", json={"run_id": run_id, "task_type": "ticket",
+                                     "status": status, "cost_usd": cost,
+                                     "retry_count": 0})
+
+    post_run("1", "completed", 0.30)  # 0.30/task, under
+    assert c.get("/alerts").json()["alerts"] == []
+
+    post_run("2", "failed", 0.60)  # 0.90/1 = 0.90 > 0.40 -> breach
+    alerts = c.get("/alerts").json()["alerts"]
+    assert [a["status"] for a in alerts] == ["breach"]
+    assert alerts[0]["run_id"] == "2"
+
+    post_run("3", "failed", 0.60)  # still over -> no repeat alert
+    assert len(c.get("/alerts").json()["alerts"]) == 1
+
+    post_run("4", "completed", 0.01)  # 1.51/2 = 0.755... still over!
+    # push cost down: one more cheap completed run
+    post_run("5", "completed", 0.01)  # 1.52/3 = 0.5067 still over
+    post_run("6", "completed", 0.01)  # 1.53/4 = 0.3825 under -> recovered
+    alerts = c.get("/alerts").json()["alerts"]
+    assert [a["status"] for a in alerts] == ["recovered", "breach"]
+
+    post_run("7", "failed", 2.00)  # 3.53/4 = 0.8825 over -> breach again
+    alerts = c.get("/alerts").json()["alerts"]
+    assert [a["status"] for a in alerts] == ["breach", "recovered", "breach"]
+
+
+def test_alerts_section_renders(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    import app.main as m
+
+    monkeypatch.setattr(m, "store", Store(tmp_path / "t.db"))
+    c = TestClient(m.app)
+    page = c.get("/").text
+    assert "No budget breaches recorded" in page
+    c.post("/budgets", json={"task_type": "t", "max_cost_per_task": 0.10})
+    c.post("/runs", json={"run_id": "1", "task_type": "t",
+                          "status": "completed", "cost_usd": 0.50,
+                          "retry_count": 0})
+    page = c.get("/").text
+    assert "Budget alerts" in page
+    assert "breach" in page
+    assert "$0.5000 of $0.1000" in page

@@ -19,6 +19,15 @@ CREATE TABLE IF NOT EXISTS budgets (
     task_type TEXT PRIMARY KEY,
     max_cost_per_task REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS alerts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts REAL NOT NULL,
+    task_type TEXT NOT NULL,
+    status TEXT NOT NULL,
+    run_id TEXT,
+    cost_per_completed_task REAL,
+    budget_per_task REAL
+);
 """
 
 
@@ -194,6 +203,51 @@ class Store:
         return {"budget_per_task": budget[0],
                 "cost_per_completed_task": row["cost_per_completed_task"],
                 "over_budget": row["over_budget"]}
+
+    def record_alert_transition(self, task_type: str, over_budget: bool,
+                                run_id: str | None = None,
+                                cost_per_completed_task: float | None = None,
+                                budget_per_task: float | None = None) -> dict | None:
+        """Log a budget alert when a workflow's over_budget state changes.
+
+        Returns the recorded event, or None when the state is unchanged.
+        A workflow already over budget does not re-alert on every ingest;
+        it alerts again only after recovering (a read under budget) and
+        breaching once more. Recovery itself is logged as 'recovered'.
+        """
+        import time
+
+        last = self.conn.execute(
+            "SELECT status FROM alerts WHERE task_type = ? "
+            "ORDER BY id DESC LIMIT 1", (task_type,)).fetchone()
+        state = "breach" if over_budget else "recovered"
+        if last is not None and last[0] == state:
+            return None
+        if last is None and not over_budget:
+            return None  # never breached: nothing to recover from
+        ts = time.time()
+        cur = self.conn.execute(
+            "INSERT INTO alerts (ts, task_type, status, run_id, "
+            "cost_per_completed_task, budget_per_task) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (ts, task_type, state, run_id, cost_per_completed_task,
+             budget_per_task))
+        self.conn.commit()
+        return {"id": cur.lastrowid, "ts": ts, "task_type": task_type,
+                "status": state, "run_id": run_id,
+                "cost_per_completed_task": cost_per_completed_task,
+                "budget_per_task": budget_per_task}
+
+    def list_alerts(self, limit: int = 50) -> list[dict]:
+        return [
+            {"id": i, "ts": t, "task_type": tt, "status": st,
+             "run_id": r, "cost_per_completed_task": c,
+             "budget_per_task": b}
+            for i, t, tt, st, r, c, b in self.conn.execute(
+                "SELECT id, ts, task_type, status, run_id, "
+                "cost_per_completed_task, budget_per_task FROM alerts "
+                "ORDER BY id DESC LIMIT ?", (limit,))
+        ]
 
     def _retry_waste_by_task_type(self, where: str = "",
                                   args: list | None = None) -> dict:
