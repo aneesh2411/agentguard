@@ -270,11 +270,9 @@ class Store:
             waste[task_type] = waste.get(task_type, 0.0) + run_waste
         return waste
 
-    def list_runs(self, task_type: str | None = None,
-                  status: str | None = None, limit: int = 100,
-                  since: float | None = None,
-                  until: float | None = None) -> list[dict]:
-        q = "SELECT payload FROM runs"
+    def _runs_where(self, task_type: str | None,
+                    status: str | None, since: float | None,
+                    until: float | None) -> tuple[str, list]:
         clauses, args = [], []
         if task_type:
             clauses.append("task_type = ?"); args.append(task_type)
@@ -284,7 +282,25 @@ class Store:
             clauses.append("event_ts >= ?"); args.append(since)
         if until is not None:
             clauses.append("event_ts < ?"); args.append(until)
-        if clauses:
-            q += " WHERE " + " AND ".join(clauses)
-        q += " LIMIT ?"; args.append(limit)
-        return [json.loads(r[0]) for r in self.conn.execute(q, args)]
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        return where, args
+
+    def count_runs(self, task_type: str | None = None,
+                   status: str | None = None, since: float | None = None,
+                   until: float | None = None) -> int:
+        where, args = self._runs_where(task_type, status, since, until)
+        return self.conn.execute("SELECT COUNT(*) FROM runs" + where,
+                                 args).fetchone()[0]
+
+    def list_runs(self, task_type: str | None = None,
+                  status: str | None = None, limit: int = 100,
+                  since: float | None = None,
+                  until: float | None = None,
+                  offset: int = 0) -> list[dict]:
+        where, args = self._runs_where(task_type, status, since, until)
+        # Newest event first; runs without a timestamp sort last. rowid
+        # breaks ties so pages are stable.
+        q = ("SELECT payload FROM runs" + where
+             + " ORDER BY event_ts DESC, rowid DESC LIMIT ? OFFSET ?")
+        return [json.loads(r[0]) for r in self.conn.execute(
+            q, args + [limit, offset])]
