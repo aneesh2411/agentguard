@@ -292,6 +292,21 @@ class Store:
         return self.conn.execute("SELECT COUNT(*) FROM runs" + where,
                                  args).fetchone()[0]
 
+    def daily_cost(self, task_type: str | None = None,
+                   since: float | None = None,
+                   until: float | None = None) -> dict[str, float]:
+        """Estimated run cost per UTC day over ALL matching runs.
+
+        Each run's full cost is attributed to the day of its last event
+        (the same event_ts the summary window uses), so the chart always
+        agrees with the summary totals for the same filter.
+        """
+        where, args = self._runs_where(task_type, None, since, until)
+        q = ("SELECT date(event_ts, 'unixepoch') AS day, SUM(cost_usd) "
+             "FROM runs" + where + " GROUP BY day ORDER BY day")
+        return {d: c for d, c in self.conn.execute(q, args)
+                if d is not None and c}
+
     def list_runs(self, task_type: str | None = None,
                   status: str | None = None, limit: int = 100,
                   since: float | None = None,
