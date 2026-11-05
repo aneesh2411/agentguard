@@ -109,6 +109,43 @@ def _filter_links(summary: dict, task_type: str | None) -> str:
             + "</p>")
 
 
+
+def _page_links(summary: dict, task_type: str | None, total: int,
+                offset: int, limit: int, shown: int) -> str:
+    """Prev/next links + position note for the runs table."""
+    from urllib.parse import urlencode
+
+    if total <= limit and offset == 0:
+        return (f'<p class="muted">Showing {shown} of {total} runs, '
+                "newest first.</p>")
+    w = summary.get("window") or {}
+
+    def href(off):
+        q = {}
+        if w.get("since"):
+            q["since"] = str(int(w["since"]))
+        if w.get("until"):
+            q["until"] = str(int(w["until"]))
+        if task_type:
+            q["task_type"] = task_type
+        if off:
+            q["runs_offset"] = str(off)
+        return "/?" + urlencode(q) if q else "/"
+
+    start = offset + 1 if shown else 0
+    end = offset + shown
+    parts = [f'<p class="muted">Showing {start}-{end} of {total} runs, '
+             "newest first."]
+    if offset > 0:
+        prev = max(0, offset - limit)
+        parts.append('<a href="{}">&larr; newer</a>'.format(
+            html.escape(href(prev), quote=True)))
+    if end < total:
+        parts.append('<a href="{}">older &rarr;</a>'.format(
+            html.escape(href(end), quote=True)))
+    return " ".join(parts) + "</p>"
+
+
 def _spend_chart(runs: list[dict]) -> str:
     """Inline SVG bar chart of estimated spend per UTC day (no JS)."""
     import datetime
@@ -151,15 +188,23 @@ def _spend_chart(runs: list[dict]) -> str:
     last = ('<text x="{}" y="{}" font-size="10" fill="#777" '
             'text-anchor="end">{}</text>'.format(width - pad, height - 6,
                                                  days[-1]))
-    return ('<svg role="img" aria-label="Estimated spend per day" '
-            'width="{}" height="{}" viewBox="0 0 {} {}">{}{}{}{}</svg>'
-            .format(width, height, width, height, peak_label,
-                    "".join(bars), first, last))
+    svg = ('<svg role="img" aria-label="Estimated spend per day" '
+           'width="{}" height="{}" viewBox="0 0 {} {}">{}{}{}{}</svg>'
+           .format(width, height, width, height, peak_label,
+                   "".join(bars), first, last))
+    return (svg + '<p class="muted">Each run\'s full estimated cost is '
+            'attributed to the day of its last event, matching the window '
+            'attribution above - it is not a day-by-day breakdown of '
+            'individual calls.</p>')
 
 
 def render_dashboard(summary: dict, runs: list[dict],
                      alerts: list[dict] | None = None,
-                     task_type: str | None = None) -> str:
+                     task_type: str | None = None,
+                     runs_total: int | None = None,
+                     runs_offset: int = 0,
+                     runs_limit: int = 50,
+                     chart_runs: list[dict] | None = None) -> str:
     rows = "".join(
         '<tr{}><td>{}</td><td>{}</td><td>{}</td><td>{}{}</td><td>{}</td>'
         "<td>{}</td><td>{}</td><td>{}</td></tr>".format(
@@ -209,6 +254,9 @@ def render_dashboard(summary: dict, runs: list[dict],
         if run_rows
         else ""
     )
+    if runs_total is not None:
+        runs_html += _page_links(summary, task_type, runs_total,
+                                 runs_offset, runs_limit, len(runs))
     alert_rows = "".join(
         "<tr><td>{}</td><td>{}</td><td>{}</td><td>{} of {}</td></tr>".format(
             _fmt_ts(a.get("ts")),
@@ -226,7 +274,7 @@ def render_dashboard(summary: dict, runs: list[dict],
         else '<p class="muted">No budget breaches recorded. External alert '
         'delivery is not configured; this log is local-only.</p>'
     )
-    chart_html = _spend_chart(runs)
+    chart_html = _spend_chart(runs if chart_runs is None else chart_runs)
     return PAGE.format(summary=summary_html, chart=chart_html,
                        runs=runs_html, alerts=alerts_html)
 
